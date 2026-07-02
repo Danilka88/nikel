@@ -70,6 +70,21 @@ export class NikelSettingTab extends PluginSettingTab {
         }),
       )
 
+    new Setting(containerEl)
+      .setName("Проверить подключение")
+      .setDesc("Проверить доступность Ollama по указанному URL")
+      .addButton((btn) =>
+        btn.setButtonText("Тест").onClick(async () => {
+          try {
+            const models = await this.plugin.ollama.listModels(this.plugin.settings.ollamaUrl)
+            const names = models.length > 0 ? models.join(", ") : "не найдены"
+            new Notice(`✅ Подключено. Модели: ${names}`)
+          } catch (e) {
+            new Notice(`❌ Ошибка: ${(e as Error).message}`)
+          }
+        }),
+      )
+
     containerEl.createEl("h3", { text: "Команды (@nikel_*)" })
 
     this.plugin.settings.commands.forEach((cmd, index) => {
