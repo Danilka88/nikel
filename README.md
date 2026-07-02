@@ -96,6 +96,22 @@ cp -r nikel-plugin ~/path/to/vault/.obsidian/plugins/nikel
 - Триггер должен быть на отдельной строке (или в начале строки)
 - Проверьте, что команда включена в Settings → Nikel
 
+## Knowledge Graph (в разработке)
+
+Плагин умеет строить базу знаний из PDF-документов:
+
+1. Укажите папку с PDF в настройках
+2. Нажмите **Индексировать**
+3. Плагин сам:
+   - Распарсит PDF через мультимодальную LLM (gemma4:e4b)
+   - Извлечёт сущности: материалы, эксперименты, свойства, режимы, установки, команды
+   - Построит граф связей между ними
+   - Сгенерирует `.md` документы с `[[links]]`, `#tags`, Dataview-полями
+   - Сгенерирует `.canvas` для Obsidian Canvas
+4. Вводите `@nikel_s что делали по сплаву X при режиме Y?` — ответ придёт из базы знаний
+
+Подробнее: [PLAN.md](PLAN.md)
+
 ## Запуск тестов
 
 ```bash
@@ -122,15 +138,28 @@ nikel-plugin/
 │   ├── types.ts                # интерфейсы и DEFAULT_SETTINGS
 │   ├── suggester.ts            # автокомплит @nik
 │   ├── services/
+│   │   ├── ingestion/
+│   │   │   ├── pdf-extractor.ts     # PDF → Ollama Vision → Markdown
+│   │   │   ├── entity-extractor.ts  # Markdown → сущности + связи
+│   │   │   └── file-watcher.ts      # хеши, инкрементальная индексация
+│   │   ├── graph/
+│   │   │   ├── knowledge-graph.ts   # граф сущностей
+│   │   │   └── query-engine.ts      # поиск по графу
+│   │   ├── generation/
+│   │   │   ├── md-generator.ts      # сущность → .md
+│   │   │   ├── canvas-generator.ts  # кластер → .canvas
+│   │   │   └── index-generator.ts   # _index.md
+│   │   ├── ollama.ts           # HTTP-клиент Ollama
 │   │   ├── trigger-parser.ts   # поиск триггера, сборка промпта
-│   │   ├── response-formatter.ts # форматирование ответа
-│   │   └── ollama.ts           # HTTP-клиент Ollama
+│   │   └── response-formatter.ts # форматирование ответа
 │   └── settings/
 │       └── settings-tab.ts     # вкладка настроек
 ├── tests/
 │   ├── __mocks__/obsidian.ts   # заглушки Obsidian API
-│   └── services/               # 48 тестов
+│   └── services/               # 48+ тестов
 ├── manifest.json
 ├── vitest.config.ts
-└── esbuild.config.mjs
+├── esbuild.config.mjs
+├── PLAN.md                     # полный архитектурный план
+└── AGENTS.md                   # инструкции для AI-агентов
 ```
