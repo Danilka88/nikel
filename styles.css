@@ -1,0 +1,10 @@
+.nikel-suggest-desc {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  margin-left: 8px;
+}
+
+.nikel-command-header h4 {
+  margin: 12px 0 4px 0;
+  color: var(--text-accent);
+}

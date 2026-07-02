@@ -1,0 +1,9 @@
+{
+  "id": "nikel",
+  "name": "Nikel",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Process @nikel_* commands with local LLM via Ollama",
+  "author": "Nikel",
+  "isDesktopOnly": true
+}
