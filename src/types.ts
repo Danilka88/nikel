@@ -36,13 +36,13 @@ export const DEFAULT_SETTINGS: NikelSettings = {
     {
       trigger: "@nikel_s",
       description: "Отправить задачу модели",
-      promptTemplate: "You are a helpful AI assistant. Complete the following task:\n\n{{input}}",
+      promptTemplate: "Ты — полезный AI-ассистент. Отвечай ТОЛЬКО на русском языке. Не добавляй переводов на другие языки.\n\n{{input}}",
       enabled: true,
     },
     {
       trigger: "@nikel_f",
       description: "Исправить форматирование и грамматику",
-      promptTemplate: "Fix the formatting and grammar of the following text. Preserve the original meaning:\n\n{{input}}",
+      promptTemplate: "Исправь форматирование и грамматику текста. Сохрани исходный смысл. Отвечай ТОЛЬКО на русском языке. Не добавляй переводов.\n\n{{input}}",
       enabled: true,
     },
   ],

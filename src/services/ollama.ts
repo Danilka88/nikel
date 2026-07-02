@@ -15,52 +15,24 @@ interface OllamaTagsResponse {
 }
 
 export class DefaultOllamaClient implements OllamaClient {
-  constructor(
-    private _fetch: typeof globalThis.fetch = globalThis.fetch,
-  ) {}
+  private _fetch: typeof globalThis.fetch
+
+  constructor(fetchFn?: typeof globalThis.fetch) {
+    this._fetch = fetchFn ?? resolveFetch()
+  }
 
   async generate(opts: GenerateOptions): Promise<string> {
     const url = this.normalizeUrl(opts.url, "/api/generate")
-    const { signal, cleanup } = opts.signal
-      ? { signal: opts.signal, cleanup: () => {} }
-      : createTimeoutSignal(DEFAULT_TIMEOUT_MS)
 
     try {
       return await this.fetchWithFallback({
         url,
-        signal,
-        fetcher: (u, s) => this.doGenerate(u, s, opts),
+        signal: opts.signal,
+        fetcher: (u, s) => this.rawFetch(u, s, opts),
       })
     } catch (err) {
-      throw humanReadableError(err, url)
-    } finally {
-      cleanup()
+      throw enhanceError(err, url)
     }
-  }
-
-  private async doGenerate(
-    url: string,
-    signal: AbortSignal,
-    opts: GenerateOptions,
-  ): Promise<string> {
-    const res = await this._fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal,
-      body: JSON.stringify({
-        model: opts.model,
-        prompt: opts.prompt,
-        stream: false,
-      }),
-    })
-
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`Ollama API error ${res.status}: ${text}`)
-    }
-
-    const data = (await res.json()) as OllamaGenerateResponse
-    return data.response
   }
 
   async listModels(url: string): Promise<string[]> {
@@ -70,7 +42,7 @@ export class DefaultOllamaClient implements OllamaClient {
       return await this.fetchWithFallback({
         url: apiUrl,
         fetcher: async (u) => {
-          const res = await this._fetch(u)
+          const res = await this.fetchWithTimeout(u)
           if (!res.ok) {
             throw new Error(`Failed to fetch models: ${res.status}`)
           }
@@ -79,7 +51,44 @@ export class DefaultOllamaClient implements OllamaClient {
         },
       })
     } catch (err) {
-      throw humanReadableError(err, apiUrl)
+      throw enhanceError(err, apiUrl)
+    }
+  }
+
+  private async rawFetch(
+    url: string,
+    signal: AbortSignal | undefined,
+    opts: GenerateOptions,
+  ): Promise<string> {
+    const body = JSON.stringify({
+      model: opts.model,
+      prompt: opts.prompt,
+      stream: false,
+    })
+
+    const res = await this._fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal,
+      body,
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`HTTP ${res.status}: ${text}`)
+    }
+
+    const data = (await res.json()) as OllamaGenerateResponse
+    return data.response
+  }
+
+  private async fetchWithTimeout(url: string): Promise<Response> {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), DEFAULT_TIMEOUT_MS)
+    try {
+      return await this._fetch(url, { signal: ctrl.signal })
+    } finally {
+      clearTimeout(timer)
     }
   }
 
@@ -96,7 +105,7 @@ export class DefaultOllamaClient implements OllamaClient {
           try {
             return await opts.fetcher(fallbackUrl, opts.signal)
           } catch {
-            // fall through, throw original error
+            // throw original error
           }
         }
         throw err
@@ -110,15 +119,21 @@ export class DefaultOllamaClient implements OllamaClient {
   }
 }
 
-function createTimeoutSignal(ms: number): { signal: AbortSignal; cleanup: () => void } {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), ms)
-  return { signal: ctrl.signal, cleanup: () => clearTimeout(timer) }
+function resolveFetch(): typeof globalThis.fetch {
+  if (typeof globalThis !== "undefined" && typeof globalThis.fetch === "function") {
+    return globalThis.fetch.bind(globalThis)
+  }
+  if (typeof window !== "undefined" && typeof window.fetch === "function") {
+    return window.fetch.bind(window)
+  }
+  if (typeof self !== "undefined" && typeof self.fetch === "function") {
+    return self.fetch.bind(self)
+  }
+  throw new Error("fetch API недоступен в этом окружении")
 }
 
 function isRetryable(err: unknown): boolean {
   if (err instanceof TypeError) return true
-  if (err instanceof DOMException && err.name === "AbortError") return false
   return false
 }
 
@@ -126,15 +141,21 @@ function isLocalhostUrl(url: string): boolean {
   return LOCALHOST_RE.test(url)
 }
 
-function humanReadableError(err: unknown, url: string): Error {
+function enhanceError(err: unknown, url: string): Error {
   if (err instanceof DOMException && err.name === "AbortError") {
     return new Error("Превышен таймаут ожидания ответа от Ollama (120 сек)")
   }
-  if (err instanceof TypeError) {
+
+  const rawMessage = err instanceof Error ? err.message : String(err)
+  const errType = err instanceof Error ? err.constructor.name : typeof err
+
+  if (err instanceof TypeError && rawMessage.includes("fetch")) {
     return new Error(
-      `Не удалось подключиться к Ollama по адресу ${url}. ` +
+      `Не удалось выполнить запрос к Ollama по адресу ${url}. ` +
+      `Ошибка: ${rawMessage}. ` +
       "Проверьте: 1) Ollama запущен (ollama serve) 2) брандмауэр не блокирует порт 11434",
     )
   }
-  return err as Error
+
+  return new Error(`Ошибка (${errType}): ${rawMessage}`)
 }

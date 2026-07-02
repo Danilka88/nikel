@@ -3,3 +3,4 @@ main.js
 main.js.map
 .vite/
 *.tsbuildinfo
+.DS_Store

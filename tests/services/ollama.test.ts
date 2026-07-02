@@ -70,7 +70,7 @@ describe("DefaultOllamaClient", () => {
 
       await expect(
         client.generate({ prompt: "p", model: "m", url: "http://localhost:11434" }),
-      ).rejects.toThrow("Ollama API error 500: Internal Server Error")
+      ).rejects.toThrow("Ошибка (Error): HTTP 500: Internal Server Error")
     })
 
     it("retries on TypeError and succeeds on second attempt", async () => {
@@ -113,7 +113,7 @@ describe("DefaultOllamaClient", () => {
 
       await expect(
         client.generate({ prompt: "p", model: "m", url: "http://localhost:11434" }),
-      ).rejects.toThrow("Не удалось подключиться к Ollama по адресу http://localhost:11434/api/generate.")
+      ).rejects.toThrow("Не удалось выполнить запрос к Ollama по адресу http://localhost:11434/api/generate.")
     })
 
     it("returns human-readable error on timeout", async () => {
@@ -133,7 +133,7 @@ describe("DefaultOllamaClient", () => {
 
       await expect(
         client.generate({ prompt: "p", model: "m", url: "http://192.168.1.100:11434" }),
-      ).rejects.toThrow("Не удалось подключиться к Ollama по адресу")
+      ).rejects.toThrow("Не удалось выполнить запрос к Ollama по адресу")
     })
   })
 
