@@ -16,14 +16,14 @@ async function getPdfLib(): Promise<typeof import("pdfjs-dist")> {
 export class DefaultPdfRenderer implements PdfPageRenderer {
   async getPageCount(buffer: ArrayBuffer): Promise<number> {
     const pdfjs = await getPdfLib()
-    const data = new Uint8Array(buffer)
+    const data = new Uint8Array(buffer.slice(0))
     const doc = await pdfjs.getDocument({ data }).promise
     return doc.numPages
   }
 
   async renderToBlob(buffer: ArrayBuffer, pageNum: number, dpi: number, maxDimension: number): Promise<Blob> {
     const pdfjs = await getPdfLib()
-    const data = new Uint8Array(buffer)
+    const data = new Uint8Array(buffer.slice(0))
     const doc = await pdfjs.getDocument({ data }).promise
 
     const page = await doc.getPage(pageNum + 1)
