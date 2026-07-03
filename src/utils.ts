@@ -26,11 +26,12 @@ export function getSubDir(type: string): string {
 }
 
 export function safeFileName(name: string): string {
-  return name
+  const result = name
     .replace(/[\\/:*?"<>|]/g, "-")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
+  return result || "unnamed"
 }
 
 const SOURCE_FOLDER_MAP: Record<string, NonNullable<Entity["sourceType"]>> = {

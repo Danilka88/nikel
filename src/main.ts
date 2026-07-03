@@ -163,9 +163,12 @@ export default class NikelPlugin extends Plugin {
       const allNew: string[] = []
       const allChanged: string[] = []
       const allDeleted: string[] = []
+      const fileToFolder = new Map<string, string>()
 
       for (const f of folders) {
         const changes = await this.fileWatcher.scan(f.path, f.exts)
+        for (const fp of changes.newFiles) fileToFolder.set(fp, f.path)
+        for (const fp of changes.changedFiles) fileToFolder.set(fp, f.path)
         allNew.push(...changes.newFiles)
         allChanged.push(...changes.changedFiles)
         allDeleted.push(...changes.deletedFiles)
@@ -187,9 +190,9 @@ export default class NikelPlugin extends Plugin {
           this.documentStore.removeBySource(filePath)
         }
       }
-
       const processedFiles = [...allNew, ...allChanged]
       const totalFiles = processedFiles.length
+      const successfullyProcessed: string[] = []
 
       for (let i = 0; i < totalFiles; i++) {
         const filePath = processedFiles[i]
@@ -233,7 +236,9 @@ export default class NikelPlugin extends Plugin {
               filePath,
             )
 
-            const relPath = path.relative(folders[0].path, filePath)
+            const folderPath = fileToFolder.get(filePath)
+            const folderBase = folderPath || folders[0]?.path || ""
+            const relPath = folderBase ? path.relative(folderBase, filePath) : fileName
             const sourceType = detectSourceType(relPath)
             for (const entity of result.entities) {
               entity.sourceType = sourceType
@@ -253,6 +258,7 @@ export default class NikelPlugin extends Plugin {
               await this.logger.warn(`No entities extracted from ${fileName}`)
             }
           }
+          successfullyProcessed.push(filePath)
         } catch (fileErr) {
           await this.logger.error(`Failed to process ${fileName}: ${(fileErr as Error).message}`, { file: fileName })
           new Notice(`⚠️ Ошибка при обработке ${fileName}: ${(fileErr as Error).message}`)
@@ -264,7 +270,8 @@ export default class NikelPlugin extends Plugin {
 
         const hashManifest = await this.fileWatcher.loadManifest()
         hashManifest.lastIndexed = new Date().toISOString()
-        await this.fileWatcher.updateFileHashes(processedFiles, hashManifest)
+        const hashFiles = successfullyProcessed.length > 0 ? successfullyProcessed : processedFiles
+        await this.fileWatcher.updateFileHashes(hashFiles, hashManifest)
         await this.fileWatcher.removeFileHashes(allDeleted, hashManifest)
         await this.fileWatcher.saveManifest(hashManifest)
 
@@ -274,7 +281,8 @@ export default class NikelPlugin extends Plugin {
         await this.logger.info(`Direct indexing complete: ${ds.totalChunks} chunks from ${ds.totalSources} sources`)
         new Notice(`✅ Индексация завершена. ${ds.totalChunks} текстовых блоков из ${ds.totalSources} файлов.`)
       } else {
-        await this.fileWatcher.updateFileHashes(processedFiles, this.graph.manifest)
+        const hashFiles = successfullyProcessed.length > 0 ? successfullyProcessed : processedFiles
+        await this.fileWatcher.updateFileHashes(hashFiles, this.graph.manifest)
         await this.fileWatcher.removeFileHashes(allDeleted, this.graph.manifest)
 
         this.graph.manifest.lastIndexed = new Date().toISOString()
@@ -542,7 +550,7 @@ export default class NikelPlugin extends Plugin {
       }
 
       const formatted = formatResponse(response, this.settings.model)
-      const insertLine = match.line + 1
+      const insertLine = Math.min(match.line + 1, editor.lineCount())
       editor.replaceRange(
         `\n${formatted}\n`,
         { line: insertLine, ch: 0 },

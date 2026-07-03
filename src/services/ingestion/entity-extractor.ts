@@ -171,6 +171,7 @@ export function normalizeName(name: string): string {
     .replace(/\s+/g, "-")
     .replace(/[^a-zа-яё0-9\-]/g, "")
     .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
 }
 
 export function dedupEntities(entities: Entity[]): Entity[] {

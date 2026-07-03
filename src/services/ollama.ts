@@ -4,12 +4,6 @@ const DEFAULT_TIMEOUT_MS = 120_000
 const MAX_RETRIES = 1
 const LOCALHOST_RE = /\/\/localhost(?=:\d+|$)/
 
-interface OllamaGenerateResponse {
-  model: string
-  response: string
-  done: boolean
-}
-
 interface OllamaTagsResponse {
   models: { name: string }[]
 }
@@ -77,8 +71,12 @@ export class DefaultOllamaClient implements OllamaClient {
             throw new Error(`HTTP ${res.status}: ${text}`)
           }
 
-          const data = (await res.json()) as { message: { content: string } }
-          return data.message.content
+          const data = await res.json() as Record<string, unknown>
+          if (!data || typeof data.message !== "object" || data.message === null || typeof (data.message as Record<string, unknown>).content !== "string") {
+            const errorMsg = typeof data.error === "string" ? data.error : "неизвестный формат ответа Ollama"
+            throw new Error(`Некорректный ответ Ollama: ${errorMsg}`)
+          }
+          return (data.message as Record<string, unknown>).content as string
         },
       })
     } catch (err) {
@@ -131,8 +129,12 @@ export class DefaultOllamaClient implements OllamaClient {
       throw new Error(`HTTP ${res.status}: ${text}`)
     }
 
-    const data = (await res.json()) as OllamaGenerateResponse
-    return data.response
+    const data = await res.json() as Record<string, unknown>
+    if (typeof data.response !== "string") {
+      const errorMsg = typeof data.error === "string" ? data.error : "неизвестный формат ответа Ollama"
+      throw new Error(`Некорректный ответ Ollama: ${errorMsg}`)
+    }
+    return data.response as string
   }
 
   private async fetchWithTimeout(url: string): Promise<Response> {

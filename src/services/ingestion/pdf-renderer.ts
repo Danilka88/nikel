@@ -5,6 +5,17 @@ const WORKER_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${VERSION}/build/pdf
 
 let pdfjsLib: typeof import("pdfjs-dist") | null = null
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      ctrl.signal.addEventListener("abort", () => reject(new Error(`canvas.toBlob timeout (${ms / 1000} сек)`)), { once: true }),
+    ),
+  ]).finally(() => clearTimeout(timer)) as Promise<T>
+}
+
 async function getPdfLib(): Promise<typeof import("pdfjs-dist")> {
   if (!pdfjsLib) {
     pdfjsLib = await import("pdfjs-dist")
@@ -43,7 +54,7 @@ export class DefaultPdfRenderer implements PdfPageRenderer {
 
     await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise
 
-    return new Promise((resolve, reject) => {
+    const blobPromise = new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((blob) => {
         try {
           canvas.width = 0
@@ -56,6 +67,8 @@ export class DefaultPdfRenderer implements PdfPageRenderer {
         else reject(new Error("canvas.toBlob returned null"))
       }, "image/png")
     })
+
+    return withTimeout(blobPromise, 60_000)
   }
 
   async getPageText(pageNum: number): Promise<string> {

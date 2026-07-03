@@ -7,6 +7,26 @@ const AGGREGATION_PROMPT = `Ты получил markdown нескольких с
 const MAX_RETRIES = 2
 const TEXT_THRESHOLD = 200
 const BASE_VISION_TIMEOUT_MS = 90_000
+const GET_PAGE_TEXT_TIMEOUT_MS = 30_000
+
+function timeoutSignal(ms: number): { signal: AbortSignal; clear: () => void } {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  return {
+    signal: ctrl.signal,
+    clear: () => clearTimeout(timer),
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  const t = timeoutSignal(ms)
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      t.signal.addEventListener("abort", () => reject(new Error(`Превышен таймаут (${ms / 1000} сек)`)), { once: true }),
+    ),
+  ]).finally(() => t.clear()) as Promise<T>
+}
 
 export interface PdfPageRenderer {
   load(data: Uint8Array): Promise<void>
@@ -58,7 +78,7 @@ export class PdfExtractor {
 
     if (mode === "fast") {
       try {
-        const text = await this._renderer.getPageText(pageNum)
+        const text = await withTimeout(this._renderer.getPageText(pageNum), GET_PAGE_TEXT_TIMEOUT_MS)
         const len = text.trim().length
         if (len > TEXT_THRESHOLD) {
           await this._logger?.info(`Page ${pageNum}: fast mode, extracted ${len} chars`, { pageNum: String(pageNum), mode: "fast-extract" })

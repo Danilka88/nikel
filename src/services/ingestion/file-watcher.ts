@@ -36,10 +36,14 @@ export class FileWatcher {
       }
     }
 
+    const currentExts = new Set(extensions.map((e) => e.toLowerCase()))
     const deletedFiles: string[] = []
     for (const key of Object.keys(previousFiles)) {
       if (!currentKeys.has(key)) {
-        deletedFiles.push(key)
+        const keyExt = path.extname(key).toLowerCase()
+        if (currentExts.has(keyExt)) {
+          deletedFiles.push(key)
+        }
       }
     }
 
@@ -95,7 +99,7 @@ export class FileWatcher {
       if (path.isAbsolute(key)) {
         migrated[key] = hash
       } else {
-        const absPath = path.resolve(this._nikelDir, "..", "..", key)
+        const absPath = path.resolve(this._nikelDir, "..", key)
         try {
           await fs.access(absPath)
           migrated[absPath] = hash
