@@ -192,7 +192,7 @@ export default class NikelPlugin extends Plugin {
           let extractResult: import("./types").PdfExtractResult
 
           if (ext === ".pdf") {
-            extractResult = await this.pdfExtractor.extractPdf(data)
+            extractResult = await this.pdfExtractor.extractPdf(data, this.settings.indexingMode)
             await this.logger.info(`PDF extracted: ${extractResult.pageCount} pages`, { file: fileName, pages: String(extractResult.pageCount) })
           } else if (ext === ".txt") {
             extractResult = await this.textExtractor.extractTxt(data)

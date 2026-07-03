@@ -112,6 +112,15 @@ describe("PdfExtractor", () => {
       .rejects.toThrow("persistent fail")
   })
 
+  it("accepts indexingMode override per call", async () => {
+    renderer.getPageText = vi.fn().mockResolvedValue("x".repeat(300))
+    const result = await extractor.extractPdf(new Uint8Array(10), "fast")
+
+    expect(renderer.getPageText).toHaveBeenCalled()
+    expect(renderer.renderToBlob).not.toHaveBeenCalled()
+    expect(result.markdown).toBe("x".repeat(300) + "\n\n" + "x".repeat(300) + "\n\n" + "x".repeat(300))
+  })
+
   it("passes correct options to renderer", async () => {
     await extractor.extractPdf(new Uint8Array(10))
 

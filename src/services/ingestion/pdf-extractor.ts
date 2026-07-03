@@ -25,9 +25,10 @@ export class PdfExtractor {
     private _logger?: Logger,
   ) {}
 
-  async extractPdf(pdfData: Uint8Array): Promise<PdfExtractResult> {
+  async extractPdf(pdfData: Uint8Array, indexingMode?: IndexingMode): Promise<PdfExtractResult> {
     await this._renderer.load(pdfData)
     const pageMarkdowns: string[] = []
+    const mode = indexingMode || this._options.indexingMode
 
     try {
       const pageCount = await this._renderer.getPageCount()
@@ -36,14 +37,14 @@ export class PdfExtractor {
         const batch = []
         const end = Math.min(i + this._options.parallelPages, pageCount)
         for (let p = i; p < end; p++) {
-          batch.push(this.processPage(p))
+          batch.push(this.processPage(p, mode))
         }
         const results = await Promise.all(batch)
         pageMarkdowns.push(...results)
       }
 
       const markdown = pageCount > 1
-        ? await this.aggregatePages(pageMarkdowns, pageCount)
+        ? await this.aggregatePages(pageMarkdowns, pageCount, mode)
         : (pageMarkdowns[0] || "")
 
       return { markdown, pageCount, pages: pageMarkdowns }
@@ -52,8 +53,9 @@ export class PdfExtractor {
     }
   }
 
-  private async processPage(pageNum: number): Promise<string> {
-    if (this._options.indexingMode === "fast") {
+  private async processPage(pageNum: number, indexingMode?: IndexingMode): Promise<string> {
+    const mode = indexingMode || this._options.indexingMode
+    if (mode === "fast") {
       try {
         const text = await this._renderer.getPageText(pageNum)
         const len = text.trim().length
@@ -102,8 +104,9 @@ export class PdfExtractor {
     throw lastError || new Error(`Failed to process page ${pageNum}`)
   }
 
-  private async aggregatePages(pages: string[], totalPages: number): Promise<string> {
-    if (this._options.indexingMode === "fast" && totalPages <= 3) {
+  private async aggregatePages(pages: string[], totalPages: number, indexingMode?: IndexingMode): Promise<string> {
+    const mode = indexingMode || this._options.indexingMode
+    if (mode === "fast" && totalPages <= 3) {
       await this._logger?.info(`Skipping LLM aggregation: fast mode, ${totalPages} pages`, { totalPages: String(totalPages), mode: "fast-skip-agg" })
       return pages.join("\n\n")
     }
