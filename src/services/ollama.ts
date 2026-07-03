@@ -128,6 +128,7 @@ export class DefaultOllamaClient implements OllamaClient {
     const res = await this._fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body,
     })
     if (!res.ok) {
       const text = await res.text()

@@ -14,7 +14,7 @@ import {
   PdfExtractResult,
   TriggerMatch,
 } from "./types"
-import { detectSourceType, resolvePdfMode, toErrorMessage } from "./utils"
+import { detectSourceType, resolvePdfMode, semanticChunk, toErrorMessage } from "./utils"
 import { NikelSuggester } from "./suggester"
 import { DefaultOllamaClient } from "./services/ollama"
 import { findTrigger, buildPrompt } from "./services/trigger-parser"
@@ -326,7 +326,7 @@ export default class NikelPlugin extends Plugin {
               await this.app.vault.create(vaultRelPath, doc.content)
               generatedCount++
             } catch (createErr) {
-              await this.logger.warn(`Failed to create note for ${entity.name}`, { error: (createErr instanceof Error ? createErr.message : String(createErr)) })
+              await this.logger.warn(`Failed to create note for ${entity.name}`, { error: toErrorMessage(createErr) })
             }
           }
         }
@@ -434,7 +434,7 @@ export default class NikelPlugin extends Plugin {
         await this.app.vault.create(vaultRelPath, mdContent)
       }
     } catch (e) {
-      await this.logger.warn(`vault write failed, falling back to fs`, { error: (e instanceof Error ? e.message : String(e)) })
+      await this.logger.warn(`vault write failed, falling back to fs`, { error: toErrorMessage(e) })
       await fs.writeFile(exportPath, mdContent, "utf-8")
     }
     return vaultRelPath
@@ -468,7 +468,7 @@ export default class NikelPlugin extends Plugin {
       try {
         answerFile = await this.app.vault.create(vaultRelPath, doc.content)
       } catch (createErr) {
-        await this.logger.warn(`vault.create failed for answer doc, trying modify`, { error: (createErr instanceof Error ? createErr.message : String(createErr)) })
+        await this.logger.warn(`vault.create failed for answer doc, trying modify`, { error: toErrorMessage(createErr) })
         const existing = this.app.vault.getAbstractFileByPath(vaultRelPath)
         if (existing instanceof TFile) {
           await this.app.vault.modify(existing, doc.content)
@@ -575,7 +575,6 @@ export default class NikelPlugin extends Plugin {
   private async addWithEmbeddings(filePath: string, text: string, pageNum?: number): Promise<void> {
     if (this.settings.embeddingEnabled) {
       try {
-        const { semanticChunk } = await import("./utils")
         const chunks = semanticChunk(text)
         if (chunks.length > 0) {
           const embeddings = await this.ollama.getEmbeddings({

@@ -238,6 +238,78 @@ describe("DefaultOllamaClient", () => {
     })
   })
 
+  describe("getEmbeddings", () => {
+    it("returns embeddings array from a successful API call", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        mockResponse({ json: { model: "nomic-embed-text", embeddings: [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]] } }),
+      )
+      client = new DefaultOllamaClient(fetch)
+
+      const result = await client.getEmbeddings({
+        model: "nomic-embed-text",
+        url: "http://localhost:11434",
+        input: ["text one", "text two"],
+      })
+
+      expect(result).toEqual([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
+      expect(fetch).toHaveBeenCalledWith(
+        "http://localhost:11434/api/embed",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"input":["text one","text two"]'),
+        }),
+      )
+    })
+
+    it("returns array for single string input", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        mockResponse({ json: { model: "nomic-embed-text", embeddings: [[0.1, 0.2]] } }),
+      )
+      client = new DefaultOllamaClient(fetch)
+
+      const result = await client.getEmbeddings({
+        model: "nomic-embed-text",
+        url: "http://localhost:11434",
+        input: "single query",
+      })
+
+      expect(result).toEqual([[0.1, 0.2]])
+    })
+
+    it("throws on HTTP error", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        mockResponse({ ok: false, status: 404, text: "model not found" }),
+      )
+      client = new DefaultOllamaClient(fetch)
+
+      await expect(
+        client.getEmbeddings({ model: "x", url: "http://localhost:11434", input: "test" }),
+      ).rejects.toThrow("HTTP 404: model not found")
+    })
+
+    it("throws on malformed response — no embeddings field", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        mockResponse({ json: { error: "failed to generate" } }),
+      )
+      client = new DefaultOllamaClient(fetch)
+
+      await expect(
+        client.getEmbeddings({ model: "x", url: "http://localhost:11434", input: "test" }),
+      ).rejects.toThrow("Некорректный ответ embeddings: failed to generate")
+    })
+
+    it("throws on malformed response — embeddings not an array", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        mockResponse({ json: { model: "x", embeddings: "not_array" } }),
+      )
+      client = new DefaultOllamaClient(fetch)
+
+      await expect(
+        client.getEmbeddings({ model: "x", url: "http://localhost:11434", input: "test" }),
+      ).rejects.toThrow("Некорректный ответ embeddings: неизвестный формат")
+    })
+  })
+
   describe("listModels", () => {
     it("returns model names from the API", async () => {
       const fetch = vi.fn().mockResolvedValue(

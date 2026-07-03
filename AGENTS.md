@@ -166,7 +166,7 @@ main.ts (оркестрация, вызовы Obsidian API)
 - **Фреймворк:** vitest v4
 - **Конфиг:** `vitest.config.ts` — alias `obsidian → tests/__mocks__/obsidian.ts`
 - **Расположение:** `tests/services/*.test.ts` (один файл на один сервис)
-- **Всего:** 18 test-файлов, 165 тестов
+- **Всего:** 18 test-файлов, 170 тестов
 
 ### 4.1 Mock Obsidian (tests/__mocks__/obsidian.ts)
 
@@ -200,7 +200,7 @@ main.ts (оркестрация, вызовы Obsidian API)
 |--------|------------|-------------------|
 | `trigger-parser` | `trigger-parser.test.ts` | 13 |
 | `response-formatter` | `response-formatter.test.ts` | 6 |
-| `ollama` | `ollama.test.ts` | 20 |
+| `ollama` | `ollama.test.ts` | 25 |
 | `suggester` | `suggester.test.ts` | 9 |
 | `main` | `main.test.ts` | 11 |
 | `pdf-extractor` | `pdf-extractor.test.ts` | 12 |
@@ -707,7 +707,7 @@ const hashFiles = successfullyProcessed.length > 0 ? successfullyProcessed : pro
 - `detectSourceType()` — по имени подпапки, после `entityExtractor.extract()`, перед `graph.mergeIndex()`
 - `mergeIndex` и `dedupEntities`: aliases (Set merge), properties (last wins), tags (concat), остальное (new ?? existing)
 - `searchFiltered` — без non-null `!`
-- `165 тестов` (18 файлов), `tsc --noEmit` чисто, build ~1.9MB
+- `170 тестов` (18 файлов), `tsc --noEmit` чисто, build ~1.9MB
 - `runIndexing()` — wrapper (guard + try/finally), логика в `_doIndexing()`
 - `PdfExtractor` — `Promise.allSettled` для batch: ошибка → `""` без краха
 - `successfullyProcessed` — хеши только для успешных; fallback на processedFiles если ни один не успешен

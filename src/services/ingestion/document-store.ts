@@ -73,8 +73,6 @@ export class DocumentStore {
     return scored
       .filter((s) => s.score > 0.001)
       .sort((a, b) => b.score - a.score)
-      .slice(0, TOP_K_RERANK)
-      .sort((a, b) => b.score - a.score)
       .slice(0, topK)
       .map((s) => s.chunk)
   }
