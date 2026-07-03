@@ -99,6 +99,24 @@ export class NikelSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings()
           }),
       )
+      .addButton((btn) =>
+        btn.setButtonText("Обзор").onClick(async () => {
+          try {
+            const { dialog } = require("electron")
+            const result = await dialog.showOpenDialog({
+              title: "Выберите папку с PDF",
+              properties: ["openDirectory"],
+            })
+            if (!result.canceled && result.filePaths.length > 0) {
+              this.plugin.settings.pdfFolder = result.filePaths[0]
+              await this.plugin.saveSettings()
+              this.display()
+            }
+          } catch {
+            new Notice("Выбор папки доступен только в десктопной версии Obsidian")
+          }
+        }),
+      )
 
     new Setting(containerEl)
       .setName("Папка генерации")
