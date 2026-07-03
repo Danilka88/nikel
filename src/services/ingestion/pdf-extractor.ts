@@ -1,4 +1,4 @@
-import { ChatOptions, Logger, OllamaClient, PdfExtractResult } from "../../types"
+import { ChatOptions, IndexingMode, Logger, OllamaClient, PdfExtractResult } from "../../types"
 
 const DEFAULT_VISION_PROMPT = `Ты — ассистент для извлечения научной информации. Опиши содержимое этой страницы PDF в формате Markdown. Сохрани: заголовки, таблицы, списки, числовые данные, формулы (LaTeX). Не пропускай подписи к рисункам, сноски, примечания. Если страница содержит таблицу — оформи её в Markdown.`
 
@@ -7,8 +7,6 @@ const AGGREGATION_PROMPT = `Ты получил markdown нескольких с
 const MAX_RETRIES = 2
 const TEXT_THRESHOLD = 200
 const BASE_VISION_TIMEOUT_MS = 90_000
-
-export type IndexingMode = "vision" | "fast"
 
 export interface PdfPageRenderer {
   load(data: Uint8Array): Promise<void>

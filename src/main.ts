@@ -10,8 +10,9 @@ import {
 import {
   NikelSettings,
   DEFAULT_SETTINGS,
+  PdfExtractResult,
 } from "./types"
-import { detectSourceType } from "./utils"
+import { detectSourceType, resolvePdfMode } from "./utils"
 import { NikelSuggester } from "./suggester"
 import { DefaultOllamaClient } from "./services/ollama"
 import { findTrigger, buildPrompt } from "./services/trigger-parser"
@@ -117,7 +118,7 @@ export default class NikelPlugin extends Plugin {
         parallelPages: 2,
         visionModel: "gemma4:e4b",
         ollamaUrl: this.settings.ollamaUrl,
-        indexingMode: this.settings.indexingMode === "direct" ? "fast" : this.settings.indexingMode,
+        indexingMode: resolvePdfMode(this.settings.indexingMode),
       },
       this.logger,
     )
@@ -202,11 +203,10 @@ export default class NikelPlugin extends Plugin {
         const ext = path.extname(filePath).toLowerCase()
 
         try {
-          let extractResult: import("./types").PdfExtractResult
+          let extractResult: PdfExtractResult
 
           if (ext === ".pdf") {
-            const pdfMode = this.settings.indexingMode === "direct" ? "fast" : this.settings.indexingMode
-            extractResult = await this.pdfExtractor.extractPdf(data, pdfMode)
+            extractResult = await this.pdfExtractor.extractPdf(data, resolvePdfMode(this.settings.indexingMode))
             await this.logger.info(`PDF extracted: ${extractResult.pageCount} pages`, { file: fileName, pages: String(extractResult.pageCount) })
           } else if (ext === ".txt") {
             extractResult = await this.textExtractor.extractTxt(data)

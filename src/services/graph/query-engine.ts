@@ -1,3 +1,4 @@
+import { getSubDir, safeFileName } from "../../utils"
 import { ChatOptions, Entity, OllamaClient, QueryResult, Relation, SearchFilters } from "../../types"
 import { KnowledgeGraph } from "./knowledge-graph"
 
@@ -37,20 +38,13 @@ export class QueryEngine {
     const foundRelations: Relation[] = []
     const linkedDocs = new Set<string>()
 
-    const typeDir: Record<string, string> = {
-      material: "materials", experiment: "experiments", property: "properties",
-      mode: "modes", equipment: "equipment", team: "teams",
-      person: "persons", conclusion: "conclusions", topic: "topics",
-      publication: "publications", process: "processes", facility: "facilities",
-    }
-
     for (const name of entityNames) {
       const results = this._graph.searchFiltered({ ...filters, text: name })
       for (const e of results.entities) {
         if (!foundEntities.some((fe) => fe.id === e.id)) {
           foundEntities.push(e)
-          const dir = typeDir[e.type] || "other"
-          const safeName = e.name.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, "-")
+          const dir = getSubDir(e.type)
+          const safeName = safeFileName(e.name) || "unnamed"
           linkedDocs.add(`${dir}/${safeName}.md`)
         }
       }
@@ -63,8 +57,8 @@ export class QueryEngine {
 
     const nameToPath = new Map<string, string>()
     for (const e of foundEntities) {
-      const dir = typeDir[e.type] || "other"
-      const safeName = e.name.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, "-")
+      const dir = getSubDir(e.type)
+      const safeName = safeFileName(e.name) || "unnamed"
       nameToPath.set(e.name, `${dir}/${safeName}.md`)
       e.aliases.forEach((a) => nameToPath.set(a, `${dir}/${safeName}.md`))
     }

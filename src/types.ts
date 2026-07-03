@@ -13,7 +13,7 @@ export interface NikelSettings {
   txtFolder: string
   docxFolder: string
   nikelDir: string
-  indexingMode: "vision" | "fast" | "direct"
+  indexingMode: IndexingMode
 }
 
 export interface TriggerMatch {
@@ -126,21 +126,7 @@ export function createEmptyManifest(): IndexManifest {
 
 // ===== PDF/Ingestion =====
 
-export interface PdfExtractorOptions {
-  dpi: number
-  maxDimension: number
-  parallelPages: number
-  visionModel: string
-  indexingMode: "vision" | "fast"
-}
-
-export const DEFAULT_PDF_OPTIONS: PdfExtractorOptions = {
-  dpi: 200,
-  maxDimension: 1024,
-  parallelPages: 2,
-  visionModel: "gemma4:e4b",
-  indexingMode: "vision",
-}
+export type IndexingMode = "vision" | "fast" | "direct"
 
 export interface PdfExtractResult {
   markdown: string

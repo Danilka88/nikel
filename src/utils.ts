@@ -1,4 +1,8 @@
-import { Entity } from "./types"
+import type { Entity, IndexingMode } from "./types"
+
+export function resolvePdfMode(mode: IndexingMode): "vision" | "fast" {
+  return mode === "direct" ? "fast" : mode
+}
 
 const TYPE_DIR_MAP: Record<string, string> = {
   material: "materials",
