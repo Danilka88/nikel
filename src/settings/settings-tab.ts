@@ -157,12 +157,53 @@ export class NikelSettingTab extends PluginSettingTab {
       )
 
     new Setting(containerEl)
+      .setName("Режим индексации")
+      .setDesc("Полный — Vision LLM на каждую страницу (медленно, для сканов). Быстрый — извлечение текста pdfjs (мгновенно, только для текстовых PDF)")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("vision", "Полный (Vision LLM)")
+          .addOption("fast", "Быстрый (извлечение текста)")
+          .setValue(this.plugin.settings.indexingMode)
+          .onChange(async (value) => {
+            this.plugin.settings.indexingMode = value as "vision" | "fast"
+            await this.plugin.saveSettings()
+          }),
+      )
+
+    new Setting(containerEl)
       .setName("Статус базы знаний")
       .setDesc("Количество сущностей и связей в графе")
       .addButton((btn) =>
         btn.setButtonText("Статус").onClick(async () => {
           const stats = this.plugin.graph.getStats()
           new Notice(`📊 Сущностей: ${stats.entityCount}, связей: ${stats.relationCount}, источников: ${stats.fileCount}`)
+        }),
+      )
+
+    containerEl.createEl("hr")
+    containerEl.createEl("h3", { text: "Логирование" })
+
+    new Setting(containerEl)
+      .setName("Экспорт лога")
+      .setDesc("Создать заметку с логом для отправки AI-ассистенту")
+      .addButton((btn) =>
+        btn.setButtonText("📋 Создать отчёт").onClick(async () => {
+          const path = await this.plugin.exportLog()
+          if (path) {
+            new Notice(`✅ Лог сохранён: ${path}`)
+          } else {
+            new Notice("Лог пуст")
+          }
+        }),
+      )
+
+    new Setting(containerEl)
+      .setName("Очистить лог")
+      .setDesc("Удалить все записи лога")
+      .addButton((btn) =>
+        btn.setButtonText("🗑 Очистить").onClick(async () => {
+          await this.plugin.clearLog()
+          new Notice("Лог очищен")
         }),
       )
 

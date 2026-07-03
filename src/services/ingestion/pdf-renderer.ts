@@ -58,6 +58,13 @@ export class DefaultPdfRenderer implements PdfPageRenderer {
     })
   }
 
+  async getPageText(pageNum: number): Promise<string> {
+    if (!this._doc) throw new Error("PDF document not loaded")
+    const page = await this._doc.getPage(pageNum + 1)
+    const content = await page.getTextContent()
+    return content.items.map((item: any) => item.str).join(" ")
+  }
+
   async close(): Promise<void> {
     if (this._doc) {
       await this._doc.destroy()

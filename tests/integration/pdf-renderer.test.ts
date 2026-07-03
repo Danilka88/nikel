@@ -55,6 +55,7 @@ describe("DefaultPdfRenderer with mocked pdfjs v4", () => {
     const mockPage = {
       getViewport: vi.fn(() => ({ width: 612, height: 792 })),
       render: vi.fn(() => ({ promise: Promise.resolve() })),
+      getTextContent: vi.fn(() => Promise.resolve({ items: [{ str: "hello" }] })),
     }
     const mockDoc = {
       numPages: 3,
@@ -106,6 +107,7 @@ describe("DefaultPdfRenderer with mocked pdfjs v4", () => {
     const mockPage = {
       getViewport: vi.fn(() => ({ width: 612, height: 792 })),
       render: vi.fn(() => ({ promise: Promise.resolve() })),
+      getTextContent: vi.fn(() => Promise.resolve({ items: [{ str: "hello" }] })),
     }
     const mockDoc = {
       numPages: 3,
@@ -123,10 +125,33 @@ describe("DefaultPdfRenderer with mocked pdfjs v4", () => {
     expect(mockDoc.getPage).toHaveBeenCalledWith(1)
   })
 
+  it("returns extracted text from getPageText", async () => {
+    const mockPage = {
+      getViewport: vi.fn(() => ({ width: 612, height: 792 })),
+      render: vi.fn(() => ({ promise: Promise.resolve() })),
+      getTextContent: vi.fn(() => Promise.resolve({
+        items: [{ str: "Hello" }, { str: "world" }, { str: "from PDF" }],
+      })),
+    }
+    const mockDoc = {
+      numPages: 1,
+      getPage: vi.fn(() => Promise.resolve(mockPage)),
+      destroy: vi.fn(() => Promise.resolve()),
+    }
+    mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockDoc) })
+
+    await renderer.load(createMinimalPdf(1))
+    const text = await renderer.getPageText(0)
+    expect(text).toBe("Hello world from PDF")
+    expect(mockDoc.getPage).toHaveBeenCalledWith(1)
+    expect(mockPage.getTextContent).toHaveBeenCalledTimes(1)
+  })
+
   it("closes and reopens document", async () => {
     const mockPage = {
       getViewport: vi.fn(() => ({ width: 612, height: 792 })),
       render: vi.fn(() => ({ promise: Promise.resolve() })),
+      getTextContent: vi.fn(() => Promise.resolve({ items: [{ str: "hello" }] })),
     }
     const mockDoc = {
       numPages: 3,

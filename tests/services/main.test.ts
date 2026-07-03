@@ -19,6 +19,7 @@ describe("NikelPlugin", () => {
         model: "gemma4:e4b",
         pdfFolder: "",
         nikelDir: "nikel",
+        indexingMode: "vision",
         commands: [
           {
             trigger: "@nikel_s",
@@ -33,6 +34,15 @@ describe("NikelPlugin", () => {
     plugin.ollama = {
       generate: vi.fn().mockResolvedValue("Hello! This is a response."),
       listModels: vi.fn().mockResolvedValue(["gemma4:e4b"]),
+    } as any
+
+    plugin.logger = {
+      info: vi.fn().mockResolvedValue(undefined),
+      warn: vi.fn().mockResolvedValue(undefined),
+      error: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+      getLogContent: vi.fn().mockResolvedValue(""),
+      checkVersion: vi.fn().mockResolvedValue(undefined),
     } as any
 
     await plugin.loadSettings()

@@ -11,6 +11,7 @@ export interface NikelSettings {
   commands: NikelCommand[]
   pdfFolder: string
   nikelDir: string
+  indexingMode: "vision" | "fast"
 }
 
 export interface TriggerMatch {
@@ -126,6 +127,7 @@ export interface PdfExtractorOptions {
   maxDimension: number
   parallelPages: number
   visionModel: string
+  indexingMode: "vision" | "fast"
 }
 
 export const DEFAULT_PDF_OPTIONS: PdfExtractorOptions = {
@@ -133,6 +135,7 @@ export const DEFAULT_PDF_OPTIONS: PdfExtractorOptions = {
   maxDimension: 1024,
   parallelPages: 2,
   visionModel: "gemma4:e4b",
+  indexingMode: "vision",
 }
 
 export interface PdfExtractResult {
@@ -206,6 +209,16 @@ export interface CanvasContent {
   edges: CanvasEdge[]
 }
 
+// ===== Logging =====
+
+export interface Logger {
+  info(msg: string, context?: Record<string, string>): Promise<void>
+  warn(msg: string, context?: Record<string, string>): Promise<void>
+  error(msg: string, context?: Record<string, string>): Promise<void>
+  clear(pluginVersion?: string): Promise<void>
+  getLogContent(): Promise<string>
+}
+
 // ===== Расширение NikelSettings =====
 
 export const DEFAULT_SETTINGS: NikelSettings = {
@@ -213,6 +226,7 @@ export const DEFAULT_SETTINGS: NikelSettings = {
   model: "gemma4:e4b",
   pdfFolder: "",
   nikelDir: "nikel",
+  indexingMode: "vision",
   commands: [
     {
       trigger: "@nikel_s",

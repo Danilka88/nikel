@@ -8,6 +8,7 @@ function createMockPlugin(commands = DEFAULT_SETTINGS.commands) {
     model: "gemma4:e4b",
     pdfFolder: "",
     nikelDir: "nikel",
+    indexingMode: "vision",
     commands,
   }
   return {

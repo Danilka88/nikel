@@ -24,6 +24,7 @@ import { QueryEngine } from "./services/graph/query-engine"
 import { EntityExtractor } from "./services/ingestion/entity-extractor"
 import { PdfExtractor } from "./services/ingestion/pdf-extractor"
 import { DefaultPdfRenderer } from "./services/ingestion/pdf-renderer"
+import { FileLogger } from "./services/log-service"
 import { MdGenerator } from "./services/generation/md-generator"
 import { IndexGenerator } from "./services/generation/index-generator"
 import { CanvasGenerator } from "./services/generation/canvas-generator"
@@ -39,6 +40,7 @@ export default class NikelPlugin extends Plugin {
   queryEngine!: QueryEngine
   entityExtractor!: EntityExtractor
   pdfExtractor!: PdfExtractor
+  logger!: FileLogger
   mdGenerator!: MdGenerator
   indexGenerator!: IndexGenerator
   canvasGenerator!: CanvasGenerator
@@ -49,6 +51,9 @@ export default class NikelPlugin extends Plugin {
     addIcon("nikel", NIKEL_ICON)
 
     this.initKnowledgeGraphServices()
+
+    await this.logger.checkVersion(this.manifest.version)
+    await this.logger.info("Plugin loaded", { version: this.manifest.version })
 
     this.suggester = new NikelSuggester(this)
     this.registerEditorSuggest(this.suggester)
@@ -82,6 +87,7 @@ export default class NikelPlugin extends Plugin {
     const vaultDir = this.vaultBasePath
     const nikelDir = vaultDir ? `${vaultDir}/${this.settings.nikelDir}` : this.settings.nikelDir
 
+    this.logger = new FileLogger(nikelDir)
     this.fileWatcher = new FileWatcher(nikelDir)
     this.graph = new KnowledgeGraph(path.join(nikelDir, "index.json"))
     this.entityExtractor = new EntityExtractor(this.ollama, {
@@ -105,7 +111,9 @@ export default class NikelPlugin extends Plugin {
         parallelPages: 2,
         visionModel: "gemma4:e4b",
         ollamaUrl: this.settings.ollamaUrl,
+        indexingMode: this.settings.indexingMode,
       },
+      this.logger,
     )
   }
 
@@ -126,6 +134,9 @@ export default class NikelPlugin extends Plugin {
     const modal = new ProgressModal(this.app, "Индексация PDF")
     modal.open()
 
+    await this.logger.clear(this.manifest.version)
+    await this.logger.info("Starting PDF indexing", { folder: this.settings.pdfFolder })
+
     try {
       modal.setProgress(0, 1, "Сканирую PDF-папку...")
 
@@ -134,10 +145,12 @@ export default class NikelPlugin extends Plugin {
 
       if (totalChanges === 0) {
         modal.close()
+        await this.logger.info("No changes found, all PDFs are current")
         new Notice("✅ Изменений не найдено. Все PDF актуальны.")
         return
       }
 
+      await this.logger.info(`Found ${totalChanges} changes: ${changes.newFiles.length} new, ${changes.changedFiles.length} changed, ${changes.deletedFiles.length} deleted`)
       await this.graph.load()
 
       const processedFiles = [...changes.newFiles, ...changes.changedFiles]
@@ -148,29 +161,41 @@ export default class NikelPlugin extends Plugin {
         const fileName = filePath.split("/").pop() || filePath
         modal.setProgress(i + 1, totalFiles, `Обрабатываю: ${fileName}`)
 
+        await this.logger.info(`Processing: ${fileName}`, { file: filePath, index: String(i + 1), total: String(totalFiles) })
+
         const raw = await fs.readFile(filePath)
         const data = Uint8Array.from(raw)
 
-        const pdfResult = await this.pdfExtractor.extractPdf(data)
+        try {
+          const pdfResult = await this.pdfExtractor.extractPdf(data)
+          await this.logger.info(`PDF extracted: ${pdfResult.pageCount} pages`, { file: fileName, pages: String(pdfResult.pageCount) })
 
-        const result = await this.entityExtractor.extract(
-          pdfResult.markdown,
-          filePath,
-        )
+          const result = await this.entityExtractor.extract(
+            pdfResult.markdown,
+            filePath,
+          )
 
-        const sourceType = detectSourceType(path.relative(this.settings.pdfFolder, filePath))
-        for (const entity of result.entities) {
-          entity.sourceType = sourceType
-        }
+          const sourceType = detectSourceType(path.relative(this.settings.pdfFolder, filePath))
+          for (const entity of result.entities) {
+            entity.sourceType = sourceType
+          }
 
-        if (result.entities.length > 0) {
-          this.graph.mergeIndex({
-            version: 1,
-            lastIndexed: new Date().toISOString(),
-            files: {},
-            entities: result.entities,
-            relations: result.relations,
-          })
+          await this.logger.info(`Entities extracted: ${result.entities.length} entities, ${result.relations.length} relations`, { file: fileName, entities: String(result.entities.length), relations: String(result.relations.length) })
+
+          if (result.entities.length > 0) {
+            this.graph.mergeIndex({
+              version: 1,
+              lastIndexed: new Date().toISOString(),
+              files: {},
+              entities: result.entities,
+              relations: result.relations,
+            })
+          } else {
+            await this.logger.warn(`No entities extracted from ${fileName}`)
+          }
+        } catch (fileErr) {
+          await this.logger.error(`Failed to process ${fileName}: ${(fileErr as Error).message}`, { file: fileName })
+          throw fileErr
         }
       }
 
@@ -230,10 +255,13 @@ export default class NikelPlugin extends Plugin {
       modal.close()
 
       const stats = this.graph.getStats()
+      await this.logger.info(`Indexing complete: ${stats.entityCount} entities, ${stats.relationCount} relations, ${generatedCount} notes created`)
       new Notice(`✅ Индексация завершена. Сущностей: ${stats.entityCount}, связей: ${stats.relationCount}. Создано заметок: ${generatedCount}`)
     } catch (e) {
       modal.close()
-      new Notice(`❌ Ошибка индексации: ${(e as Error).message}`)
+      const msg = (e as Error).message
+      await this.logger.error(`Indexing failed: ${msg}`)
+      new Notice(`❌ Ошибка индексации: ${msg}`)
     }
   }
 
@@ -271,11 +299,39 @@ export default class NikelPlugin extends Plugin {
     }
   }
 
+  async exportLog(): Promise<string> {
+    const vaultDir = this.vaultBasePath
+    const nikelDir = vaultDir ? `${vaultDir}/${this.settings.nikelDir}` : this.settings.nikelDir
+    const logContent = await this.logger.getLogContent()
+    if (!logContent) return ""
+
+    const lines = logContent.split("\n").length
+    const date = new Date().toISOString().slice(0, 10)
+    const exportPath = `${nikelDir}/_log-export.md`
+    const vaultRelPath = `${this.settings.nikelDir}/_log-export.md`
+    const frontmatter = `---\ntype: log-export\ncreated: ${date}\nplugin: ${this.manifest.version}\nlines: ${lines}\n---\n`
+    const mdContent = frontmatter + "```\n" + logContent + "\n```\n"
+
+    const existing = this.app.vault.getAbstractFileByPath(vaultRelPath)
+    try {
+      if (existing instanceof TFile) {
+        await this.app.vault.modify(existing, mdContent)
+      } else {
+        await this.app.vault.create(vaultRelPath, mdContent)
+      }
+    } catch (e) {
+      // fallback: write directly via fs
+      await fs.writeFile(exportPath, mdContent, "utf-8")
+    }
+    return vaultRelPath
+  }
+
   private async processWithGraph(
     input: string,
     triggerLine: number,
     editor: any,
   ): Promise<void> {
+    await this.logger.info("processWithGraph", { input: input.slice(0, 100) })
     new Notice("🔍 Ищу в базе знаний...")
 
     try {
@@ -324,12 +380,19 @@ export default class NikelPlugin extends Plugin {
         new Notice("✅ Ответ вставлен")
       }
     } catch (e) {
+      await this.logger.error(`processWithGraph failed: ${(e as Error).message}`)
       new Notice(`❌ Ошибка: ${(e as Error).message}`)
     }
   }
 
+  async clearLog(): Promise<void> {
+    await this.logger.clear(this.manifest.version)
+    await this.logger.info("Log cleared manually")
+  }
+
   private async processDirect(match: any, editor: any): Promise<void> {
     const prompt = buildPrompt(match.command, match.input)
+    await this.logger.info("processDirect", { trigger: match.command.trigger, input: match.input.slice(0, 100) })
     new Notice(`🤖 ${match.command.trigger}: отправляю запрос...`)
 
     try {
@@ -354,6 +417,7 @@ export default class NikelPlugin extends Plugin {
 
       new Notice("✅ Ответ вставлен")
     } catch (e) {
+      await this.logger.error(`processDirect failed: ${(e as Error).message}`)
       new Notice(`❌ Ошибка Ollama: ${(e as Error).message}`)
     }
   }
