@@ -1,8 +1,10 @@
+import * as path from "path"
 import {
   Plugin,
   MarkdownView,
   Notice,
   addIcon,
+  TFile,
 } from "obsidian"
 import {
   NikelSettings,
@@ -13,12 +15,16 @@ import { DefaultOllamaClient } from "./services/ollama"
 import { findTrigger, buildPrompt } from "./services/trigger-parser"
 import { formatResponse } from "./services/response-formatter"
 import { NikelSettingTab } from "./settings/settings-tab"
+import { ProgressModal } from "./ui/progress-modal"
 import { FileWatcher } from "./services/ingestion/file-watcher"
 import { KnowledgeGraph } from "./services/graph/knowledge-graph"
 import { QueryEngine } from "./services/graph/query-engine"
 import { EntityExtractor } from "./services/ingestion/entity-extractor"
+import { PdfExtractor } from "./services/ingestion/pdf-extractor"
+import { DefaultPdfRenderer } from "./services/ingestion/pdf-renderer"
 import { MdGenerator } from "./services/generation/md-generator"
 import { IndexGenerator } from "./services/generation/index-generator"
+import { CanvasGenerator } from "./services/generation/canvas-generator"
 
 const NIKEL_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" stroke-width="5"/><text x="50" y="50" text-anchor="middle" dy=".35em" font-size="40" fill="currentColor" font-weight="bold">N</text></svg>`
 
@@ -30,8 +36,10 @@ export default class NikelPlugin extends Plugin {
   graph!: KnowledgeGraph
   queryEngine!: QueryEngine
   entityExtractor!: EntityExtractor
+  pdfExtractor!: PdfExtractor
   mdGenerator!: MdGenerator
   indexGenerator!: IndexGenerator
+  canvasGenerator!: CanvasGenerator
 
   async onload(): Promise<void> {
     await this.loadSettings()
@@ -60,13 +68,20 @@ export default class NikelPlugin extends Plugin {
     this.addSettingTab(new NikelSettingTab(this.app, this))
   }
 
+  private get vaultBasePath(): string {
+    const adapter = this.app.vault.adapter
+    if ("basePath" in adapter) {
+      return (adapter as { basePath: string }).basePath
+    }
+    return ""
+  }
+
   private initKnowledgeGraphServices(): void {
-    const vaultDir = (this.app.vault as any).adapter?.basePath || ""
+    const vaultDir = this.vaultBasePath
     const nikelDir = vaultDir ? `${vaultDir}/${this.settings.nikelDir}` : this.settings.nikelDir
-    const indexManifestPath = `${nikelDir}/.nikel/index.json`
 
     this.fileWatcher = new FileWatcher(nikelDir)
-    this.graph = new KnowledgeGraph(indexManifestPath)
+    this.graph = new KnowledgeGraph(path.join(nikelDir, "index.json"))
     this.entityExtractor = new EntityExtractor(this.ollama, {
       model: this.settings.model,
       url: this.settings.ollamaUrl,
@@ -76,7 +91,20 @@ export default class NikelPlugin extends Plugin {
       url: this.settings.ollamaUrl,
     })
     this.mdGenerator = new MdGenerator(nikelDir)
-    this.indexGenerator = new IndexGenerator()
+    this.indexGenerator = new IndexGenerator(nikelDir)
+    this.canvasGenerator = new CanvasGenerator(nikelDir, this.settings.nikelDir)
+
+    this.pdfExtractor = new PdfExtractor(
+      this.ollama,
+      new DefaultPdfRenderer(),
+      {
+        dpi: 200,
+        maxDimension: 1024,
+        parallelPages: 2,
+        visionModel: "gemma4:e4b",
+        ollamaUrl: this.settings.ollamaUrl,
+      },
+    )
   }
 
   async loadSettings(): Promise<void> {
@@ -93,27 +121,52 @@ export default class NikelPlugin extends Plugin {
       return
     }
 
-    new Notice("🔍 Сканирую PDF-папку...")
+    const modal = new ProgressModal(this.app, "Индексация PDF")
+    modal.open()
 
     try {
+      modal.setProgress(0, 1, "Сканирую PDF-папку...")
+
       const changes = await this.fileWatcher.scan(this.settings.pdfFolder)
       const totalChanges = changes.newFiles.length + changes.changedFiles.length + changes.deletedFiles.length
 
       if (totalChanges === 0) {
+        modal.close()
         new Notice("✅ Изменений не найдено. Все PDF актуальны.")
         return
       }
 
-      new Notice(`📄 Найдено изменений: ${changes.newFiles.length} новых, ${changes.changedFiles.length} изменённых, ${changes.deletedFiles.length} удалённых`)
-
       await this.graph.load()
 
       const processedFiles = [...changes.newFiles, ...changes.changedFiles]
-      let processedCount = 0
+      const totalFiles = processedFiles.length
 
-      for (const filePath of processedFiles) {
-        new Notice(`📄 Обрабатываю: ${filePath.split("/").pop()} (${processedCount + 1}/${processedFiles.length})`)
-        processedCount++
+      for (let i = 0; i < totalFiles; i++) {
+        const filePath = processedFiles[i]
+        const fileName = filePath.split("/").pop() || filePath
+        modal.setProgress(i + 1, totalFiles, `Обрабатываю: ${fileName}`)
+
+        const fs = await import("fs/promises")
+        const buffer = await fs.readFile(filePath)
+
+        const pdfResult = await this.pdfExtractor.extractPdf(
+          buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
+        )
+
+        const result = await this.entityExtractor.extract(
+          pdfResult.markdown,
+          filePath,
+        )
+
+        if (result.entities.length > 0) {
+          this.graph.mergeIndex({
+            version: 1,
+            lastIndexed: new Date().toISOString(),
+            files: {},
+            entities: result.entities,
+            relations: result.relations,
+          })
+        }
       }
 
       await this.fileWatcher.updateFileHashes(this.settings.pdfFolder, processedFiles, this.graph.manifest)
@@ -122,9 +175,59 @@ export default class NikelPlugin extends Plugin {
       this.graph.manifest.lastIndexed = new Date().toISOString()
       await this.graph.save()
 
+      const vaultBase = this.vaultBasePath
+      let generatedCount = 0
+      for (const entity of this.graph.entities) {
+        const doc = this.mdGenerator.generateDoc(entity, this.graph.relations)
+        const vaultRelPath = doc.path.startsWith(vaultBase)
+          ? doc.path.slice(vaultBase.length + 1)
+          : `${this.settings.nikelDir}/_answers/${doc.path.split("/").pop()}`
+        const exists = this.app.vault.getAbstractFileByPath(vaultRelPath)
+        if (!exists) {
+          try {
+            await this.app.vault.create(vaultRelPath, doc.content)
+            generatedCount++
+          } catch {
+            // path may already exist from a previous run
+          }
+        }
+      }
+
+      const indexContent = this.indexGenerator.generateIndex(this.graph.manifest)
+      const indexRelPath = `${this.settings.nikelDir}/_index.md`
+      const existingIndex = this.app.vault.getAbstractFileByPath(indexRelPath)
+      if (existingIndex instanceof TFile) {
+        await this.app.vault.modify(existingIndex, indexContent)
+      } else {
+        await this.app.vault.create(indexRelPath, indexContent)
+      }
+
+      const graphContent = this.indexGenerator.generateGraphMermaid(this.graph.manifest)
+      const graphRelPath = `${this.settings.nikelDir}/_graph.md`
+      const existingGraph = this.app.vault.getAbstractFileByPath(graphRelPath)
+      if (existingGraph instanceof TFile) {
+        await this.app.vault.modify(existingGraph, graphContent)
+      } else {
+        await this.app.vault.create(graphRelPath, graphContent)
+      }
+
+      const overviewCanvas = this.canvasGenerator.generateGlobalOverview(this.graph)
+      const canvasRelPath = `${this.settings.nikelDir}/canvas/обзор-базы-знаний.canvas`
+      const existingCanvas = this.app.vault.getAbstractFileByPath(canvasRelPath)
+      const canvasContent = JSON.stringify({ nodes: overviewCanvas.nodes, edges: overviewCanvas.edges }, null, 2)
+      if (existingCanvas instanceof TFile) {
+        await this.app.vault.modify(existingCanvas, canvasContent)
+      } else {
+        await this.app.vault.create(canvasRelPath, canvasContent)
+      }
+
+      modal.setProgress(100, 100, "Сохранение завершено")
+      modal.close()
+
       const stats = this.graph.getStats()
-      new Notice(`✅ Индексация завершена. Сущностей: ${stats.entityCount}, связей: ${stats.relationCount}`)
+      new Notice(`✅ Индексация завершена. Сущностей: ${stats.entityCount}, связей: ${stats.relationCount}. Создано заметок: ${generatedCount}`)
     } catch (e) {
+      modal.close()
       new Notice(`❌ Ошибка индексации: ${(e as Error).message}`)
     }
   }
@@ -175,16 +278,46 @@ export default class NikelPlugin extends Plugin {
 
       const doc = this.mdGenerator.generateAnswerDoc(result, input, this.settings.model)
 
-      const insertLine = triggerLine + 1
-      const content = `\n> **Контекст из базы знаний:**\n${result.contextMd.split("\n").map((l) => `> ${l}`).join("\n")}\n>\n> **Ответ:**\n> ${result.answer.split("\n").join("\n> ")}\n`
+      const vaultBase = this.vaultBasePath
+      const vaultRelPath = doc.path.startsWith(vaultBase)
+        ? doc.path.slice(vaultBase.length + 1)
+        : this.settings.nikelDir + "/_answers/" + doc.path.split("/").pop()
 
-      editor.replaceRange(
-        content,
-        { line: insertLine, ch: 0 },
-        { line: insertLine, ch: 0 },
-      )
+      const answersDir = `${this.settings.nikelDir}/_answers`
+      const answersDirExists = this.app.vault.getAbstractFileByPath(answersDir)
+      if (!answersDirExists) {
+        await this.app.vault.createFolder(answersDir)
+      }
 
-      new Notice("✅ Ответ из базы знаний вставлен")
+      let answerFile: TFile | null = null
+      try {
+        answerFile = await this.app.vault.create(vaultRelPath, doc.content)
+      } catch {
+        const existing = this.app.vault.getAbstractFileByPath(vaultRelPath)
+        if (existing instanceof TFile) {
+          await this.app.vault.modify(existing, doc.content)
+          answerFile = existing
+        }
+      }
+
+      const insertLine = Math.min(triggerLine + 1, editor.lineCount())
+      if (answerFile) {
+        editor.replaceRange(
+          `\n> **Ответ сохранён:** [[${vaultRelPath}]]\n`,
+          { line: insertLine, ch: 0 },
+          { line: insertLine, ch: 0 },
+        )
+        new Notice(`✅ Ответ сохранён: ${vaultRelPath}`)
+      } else {
+        const contextBlock = result.contextMd.split("\n").map((l) => `> ${l}`).join("\n")
+        const answerBlock = result.answer.split("\n").join("\n> ")
+        editor.replaceRange(
+          `\n> **Контекст из базы знаний:**\n${contextBlock}\n>\n> **Ответ:**\n> ${answerBlock}\n`,
+          { line: insertLine, ch: 0 },
+          { line: insertLine, ch: 0 },
+        )
+        new Notice("✅ Ответ вставлен")
+      }
     } catch (e) {
       new Notice(`❌ Ошибка: ${(e as Error).message}`)
     }

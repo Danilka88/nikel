@@ -1,19 +1,6 @@
 import * as path from "path"
 import { DocContent, Entity, QueryResult, Relation } from "../../types"
-
-const TYPE_DIR_MAP: Record<string, string> = {
-  material: "materials",
-  experiment: "experiments",
-  property: "properties",
-  mode: "modes",
-  equipment: "equipment",
-  team: "teams",
-  person: "persons",
-  conclusion: "conclusions",
-  topic: "topics",
-}
-
-const DEFAULT_DIR = "other"
+import { getSubDir, safeFileName as safeName } from "../../utils"
 
 export class MdGenerator {
   constructor(
@@ -21,12 +8,12 @@ export class MdGenerator {
   ) {}
 
   generateDoc(entity: Entity, relations: Relation[]): DocContent {
-    const subDir = TYPE_DIR_MAP[entity.type] || DEFAULT_DIR
-    const safeName = this.safeFileName(entity.name)
-    const docPath = path.join(this._nikelDir, subDir, `${safeName}.md`)
+    const subDir = getSubDir(entity.type)
+    const safeNameStr = safeName(entity.name)
+    const docPath = path.join(this._nikelDir, subDir, `${safeNameStr}.md`)
 
     const tags = this.buildTags(entity)
-    const dataviewFields = this.buildDataview(entity)
+    const dataviewFields = this.buildDataview(entity, relations)
 
     const frontmatter: Record<string, unknown> = {
       id: entity.id,
@@ -40,8 +27,8 @@ export class MdGenerator {
       frontmatter.aliases = entity.aliases
     }
 
-    const relatedExperiments = relations
-      .filter((r) => r.type === "uses_material" || r.type === "related_to" || r.type === "precedes")
+    const relatedEntities = relations
+      .filter((r) => r.from === entity.id || r.to === entity.id)
       .map((r) => {
         const targetId = r.from === entity.id ? r.to : r.from
         return `[[${targetId}]]${r.context ? ` — ${r.context}` : ""}`
@@ -62,9 +49,9 @@ export class MdGenerator {
       }
     }
 
-    if (relatedExperiments.length > 0) {
+    if (relatedEntities.length > 0) {
       bodyParts.push("", "### Связанные сущности")
-      bodyParts.push(...relatedExperiments.map((l) => `- ${l}`))
+      bodyParts.push(...relatedEntities)
     }
 
     if (entity.source) {
@@ -146,19 +133,40 @@ export class MdGenerator {
     return tags
   }
 
-  private buildDataview(entity: Entity): Record<string, unknown> {
+  private buildDataview(entity: Entity, relations: Relation[]): Record<string, unknown> {
     const fields: Record<string, unknown> = {}
     for (const [key, val] of Object.entries(entity.properties)) {
       fields[key] = val
     }
+
+    const relFieldMap: Record<string, string> = {
+      uses_material: "material",
+      has_property: "property",
+      in_mode: "mode",
+      uses_equipment: "equipment",
+      conducted_by: "team",
+      leads_to: "conclusion",
+      related_to: "related",
+      precedes: "precedes",
+    }
+
+    for (const rel of relations) {
+      const fieldName = relFieldMap[rel.type]
+      if (!fieldName) continue
+      const targetId = rel.from === entity.id ? rel.to : rel.from
+      if (!fields[fieldName]) {
+        fields[fieldName] = []
+      }
+      ;(fields[fieldName] as string[]).push(`[[${targetId}]]`)
+    }
+
+    for (const [key, val] of Object.entries(fields)) {
+      if (Array.isArray(val)) {
+        fields[key] = [...new Set(val)]
+      }
+    }
+
     return fields
   }
 
-  private safeFileName(name: string): string {
-    return name
-      .replace(/[\\/:*?"<>|]/g, "-")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "")
-  }
 }

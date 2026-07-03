@@ -4,3 +4,5 @@ main.js.map
 .vite/
 *.tsbuildinfo
 .DS_Store
+*.bak
+.nikel/

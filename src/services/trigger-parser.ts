@@ -27,8 +27,5 @@ export function findTrigger(
 }
 
 export function buildPrompt(command: NikelCommand, input: string): string {
-  if (input.includes("{{input}}")) {
-    return command.promptTemplate.replace(/\{\{input\}\}/g, input)
-  }
   return command.promptTemplate.replace(/\{\{input\}\}/g, input)
 }

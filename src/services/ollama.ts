@@ -23,25 +23,31 @@ export class DefaultOllamaClient implements OllamaClient {
 
   async generate(opts: GenerateOptions): Promise<string> {
     const url = this.normalizeUrl(opts.url, "/api/generate")
+    const timeout = opts.signal ? null : timeoutSignal(DEFAULT_TIMEOUT_MS)
 
     try {
+      const signal = opts.signal ?? timeout!.signal
       return await this.fetchWithFallback({
         url,
-        signal: opts.signal,
+        signal,
         fetcher: (u, s) => this.rawFetch(u, s, opts),
       })
     } catch (err) {
       throw enhanceError(err, url)
+    } finally {
+      timeout?.clear()
     }
   }
 
   async chat(opts: ChatOptions): Promise<string> {
     const url = this.normalizeUrl(opts.url, "/api/chat")
+    const timeout = opts.signal ? null : timeoutSignal(DEFAULT_TIMEOUT_MS)
 
     try {
+      const signal = opts.signal ?? timeout!.signal
       return await this.fetchWithFallback({
         url,
-        signal: opts.signal,
+        signal,
         fetcher: async (u, s) => {
           const messages = opts.messages.map((m) => {
             const msg: Record<string, unknown> = { role: m.role, content: m.content }
@@ -75,6 +81,8 @@ export class DefaultOllamaClient implements OllamaClient {
       })
     } catch (err) {
       throw enhanceError(err, url)
+    } finally {
+      timeout?.clear()
     }
   }
 
@@ -162,6 +170,16 @@ export class DefaultOllamaClient implements OllamaClient {
   }
 }
 
+function timeoutSignal(ms: number): { signal: AbortSignal; clear: () => void } {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  return {
+    signal: ctrl.signal,
+    clear: () => clearTimeout(timer),
+  }
+}
+
+
 function resolveFetch(): typeof globalThis.fetch {
   if (typeof globalThis !== "undefined" && typeof globalThis.fetch === "function") {
     return globalThis.fetch.bind(globalThis)
@@ -177,6 +195,7 @@ function resolveFetch(): typeof globalThis.fetch {
 
 function isRetryable(err: unknown): boolean {
   if (err instanceof TypeError) return true
+  if (err instanceof DOMException && err.name === "AbortError") return true
   return false
 }
 

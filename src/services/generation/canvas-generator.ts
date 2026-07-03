@@ -1,6 +1,7 @@
 import * as path from "path"
 import { CanvasContent, CanvasEdge, CanvasNode, Entity, Relation } from "../../types"
 import { KnowledgeGraph } from "../graph/knowledge-graph"
+import { getSubDir, safeFileName } from "../../utils"
 
 const NODE_WIDTH = 300
 const NODE_HEIGHT = 150
@@ -13,14 +14,15 @@ const MAX_NODES_OVERVIEW = 50
 export class CanvasGenerator {
   constructor(
     private _nikelDir: string,
+    private _vaultRelDir: string = "nikel",
   ) {}
 
   generateCluster(entityId: string, graph: KnowledgeGraph): CanvasContent {
     const cluster = graph.buildCluster(entityId, 1)
-    const safeName = this.safeFileName(
+    const safeNameStr = safeFileName(
       graph.getEntity(entityId)?.name || entityId,
     )
-    const filePath = path.join("nikel", "canvas", `кластер-${safeName}.canvas`)
+    const filePath = path.join(this._nikelDir, "canvas", `кластер-${safeNameStr}.canvas`)
 
     const { nodes, edges } = this.layoutRadial(cluster.entities, cluster.relations, entityId)
 
@@ -28,9 +30,12 @@ export class CanvasGenerator {
   }
 
   generateGlobalOverview(graph: KnowledgeGraph): CanvasContent {
-    const filePath = path.join("nikel", "canvas", "обзор-базы-знаний.canvas")
+    const filePath = path.join(this._nikelDir, "canvas", "обзор-базы-знаний.canvas")
     const entities = graph.entities.slice(0, MAX_NODES_OVERVIEW)
-    const relations = graph.relations
+    const entityIds = new Set(entities.map((e) => e.id))
+    const relations = graph.relations.filter(
+      (r) => entityIds.has(r.from) && entityIds.has(r.to),
+    )
 
     const { nodes, edges } = this.layoutGrid(entities, relations)
 
@@ -38,7 +43,7 @@ export class CanvasGenerator {
   }
 
   generateTimeline(entities: Entity[], relations: Relation[]): CanvasContent {
-    const filePath = path.join("nikel", "canvas", "хронология.canvas")
+    const filePath = path.join(this._nikelDir, "canvas", "хронология.canvas")
 
     const experiments = entities
       .filter((e) => e.type === "experiment")
@@ -55,7 +60,7 @@ export class CanvasGenerator {
       width: NODE_WIDTH,
       height: NODE_HEIGHT,
       type: "file" as const,
-      file: path.join("nikel", "experiments", `${this.safeFileName(e.name)}.md`),
+      file: `${this._vaultRelDir}/experiments/${safeFileName(e.name)}.md`,
       label: e.name,
     }))
 
@@ -133,7 +138,7 @@ export class CanvasGenerator {
   }
 
   private entityToNode(entity: Entity, x: number, y: number): CanvasNode {
-    const subDir = this.getSubDir(entity.type)
+    const subDir = getSubDir(entity.type)
     return {
       id: entity.id,
       x: Math.round(x),
@@ -141,31 +146,9 @@ export class CanvasGenerator {
       width: NODE_WIDTH,
       height: NODE_HEIGHT,
       type: "file",
-      file: path.join("nikel", subDir, `${this.safeFileName(entity.name)}.md`),
+      file: `${this._vaultRelDir}/${subDir}/${safeFileName(entity.name)}.md`,
       label: entity.name,
     }
   }
 
-  private getSubDir(type: string): string {
-    const map: Record<string, string> = {
-      material: "materials",
-      experiment: "experiments",
-      property: "properties",
-      mode: "modes",
-      equipment: "equipment",
-      team: "teams",
-      person: "persons",
-      conclusion: "conclusions",
-      topic: "topics",
-    }
-    return map[type] || "other"
-  }
-
-  private safeFileName(name: string): string {
-    return name
-      .replace(/[\\/:*?"<>|]/g, "-")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "")
-  }
 }

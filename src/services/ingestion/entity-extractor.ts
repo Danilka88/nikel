@@ -1,4 +1,14 @@
-import { ChatOptions, Entity, ExtractionResult, OllamaClient, Relation } from "../../types"
+import { ChatOptions, Entity, EntityType, ExtractionResult, OllamaClient, Relation, RelationType } from "../../types"
+
+const VALID_ENTITY_TYPES = new Set<EntityType>([
+  "material", "experiment", "property", "mode",
+  "equipment", "team", "person", "conclusion", "topic",
+])
+
+const VALID_RELATION_TYPES = new Set<RelationType>([
+  "uses_material", "has_property", "in_mode", "uses_equipment",
+  "conducted_by", "leads_to", "related_to", "precedes",
+])
 
 const EXTRACT_PROMPT = `Ты — система извлечения структурированных знаний из научных документов. Проанализируй следующий markdown и извлеки все сущности и связи между ними.
 
@@ -91,12 +101,15 @@ export class EntityExtractor {
       if (!isValidExtraction(data)) return null
 
       const now = new Date().toISOString()
-      const entities: Entity[] = (data.entities || []).map((e: unknown) => {
+      const entities: Entity[] = (data.entities || []).flatMap((e: unknown) => {
         const obj = e as Record<string, unknown>
+        const type = obj.type as string
+        if (!VALID_ENTITY_TYPES.has(type as EntityType)) return []
+
         return {
           id: String(obj.id || ""),
           name: String(obj.name || ""),
-          type: obj.type as Entity["type"],
+          type: type as EntityType,
           aliases: extractStringArray(obj.aliases),
           properties: (obj.properties && typeof obj.properties === "object") ? obj.properties as Record<string, string> : {},
           tags: extractStringArray(obj.tags),
@@ -108,12 +121,15 @@ export class EntityExtractor {
         }
       })
 
-      const relations: Relation[] = (data.relations || []).map((r: unknown) => {
+      const relations: Relation[] = (data.relations || []).flatMap((r: unknown) => {
         const obj = r as Record<string, unknown>
+        const type = obj.type as string
+        if (!VALID_RELATION_TYPES.has(type as RelationType)) return []
+
         return {
           from: String(obj.from || ""),
           to: String(obj.to || ""),
-          type: obj.type as Relation["type"],
+          type: type as RelationType,
           context: typeof obj.context === "string" ? obj.context : undefined,
         }
       })

@@ -41,7 +41,7 @@ describe("QueryEngine", () => {
       const result = await engine.answerQuestion("Что делали со сплавом X?")
 
       expect(result.answer).toBeTruthy()
-      expect(result.contextMd).toContain("[[Сплав-X]]")
+      expect(result.contextMd).toContain("[[materials/Сплав-X.md")
       expect(result.linkedDocs.length).toBeGreaterThan(0)
     })
 

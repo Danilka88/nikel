@@ -37,12 +37,20 @@ export class QueryEngine {
     const foundRelations: Relation[] = []
     const linkedDocs = new Set<string>()
 
+    const typeDir: Record<string, string> = {
+      material: "materials", experiment: "experiments", property: "properties",
+      mode: "modes", equipment: "equipment", team: "teams",
+      person: "persons", conclusion: "conclusions", topic: "topics",
+    }
+
     for (const name of entityNames) {
       const results = this._graph.search(name)
       for (const e of results.entities) {
         if (!foundEntities.some((fe) => fe.id === e.id)) {
           foundEntities.push(e)
-          linkedDocs.add(`${this._options.model}/${e.type}/${e.name}.md`)
+          const dir = typeDir[e.type] || "other"
+          const safeName = e.name.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, "-")
+          linkedDocs.add(`${dir}/${safeName}.md`)
         }
       }
       for (const r of results.relations) {
@@ -52,7 +60,15 @@ export class QueryEngine {
       }
     }
 
-    const contextMd = this.buildContext(foundEntities, foundRelations)
+    const nameToPath = new Map<string, string>()
+    for (const e of foundEntities) {
+      const dir = typeDir[e.type] || "other"
+      const safeName = e.name.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, "-")
+      nameToPath.set(e.name, `${dir}/${safeName}.md`)
+      e.aliases.forEach((a) => nameToPath.set(a, `${dir}/${safeName}.md`))
+    }
+
+    const contextMd = this.buildContext(foundEntities, foundRelations, nameToPath)
     const answer = await this.generateAnswer(contextMd, question)
 
     return {
@@ -76,27 +92,30 @@ export class QueryEngine {
         return JSON.parse(json[0]) as string[]
       }
     } catch {
-      // fall through
+      return []
     }
 
     return []
   }
 
-  private buildContext(entities: Entity[], relations: Relation[]): string {
+  private buildContext(entities: Entity[], relations: Relation[], nameToPath: Map<string, string>): string {
     if (entities.length === 0) return "В графе нет информации по вашему вопросу."
 
     const entityMap = new Map(entities.map((e) => [e.id, e]))
+    const entityNameMap = new Map(entities.map((e) => [e.id, e.name]))
     const parts: string[] = []
 
     for (const entity of entities) {
+      const linkPath = nameToPath.get(entity.name) || entity.name
       const entityRelations = relations.filter((r) => r.from === entity.id || r.to === entity.id)
       const relatedNames = entityRelations.map((r) => {
         const otherId = r.from === entity.id ? r.to : r.from
-        const other = entityMap.get(otherId)
-        return `  - [[${entity.name}]] → [[${other?.name || otherId}]] (${r.type})${r.context ? `: ${r.context}` : ""}`
+        const otherName = entityNameMap.get(otherId) || otherId
+        const otherPath = nameToPath.get(otherName) || otherName
+        return `  - [[${linkPath}|${entity.name}]] → [[${otherPath}|${otherName}]] (${r.type})${r.context ? `: ${r.context}` : ""}`
       })
 
-      parts.push(`[[${entity.name}]]${entity.context ? `: ${entity.context}` : ""}`)
+      parts.push(`[[${linkPath}|${entity.name}]]${entity.context ? `: ${entity.context}` : ""}`)
       if (relatedNames.length > 0) {
         parts.push(...relatedNames)
       }

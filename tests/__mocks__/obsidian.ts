@@ -40,6 +40,19 @@ export class Setting {
   addButton(_: (b: any) => void) { return this }
 }
 
+export class Modal {
+  app: any
+  titleEl: HTMLElement
+  contentEl: HTMLElement
+  constructor(app: any) {
+    this.app = app
+    this.titleEl = document.createElement("h2")
+    this.contentEl = document.createElement("div")
+  }
+  open(): void {}
+  close(): void {}
+}
+
 export class Notice {
   message: string
   static lastMessage: string | null = null

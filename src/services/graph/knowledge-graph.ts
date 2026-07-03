@@ -26,7 +26,15 @@ export class KnowledgeGraph {
     try {
       const data = await fs.readFile(this._manifestPath, "utf-8")
       this._manifest = JSON.parse(data) as IndexManifest
-    } catch {
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        const bakPath = this._manifestPath + ".bak"
+        try {
+          await fs.copyFile(this._manifestPath, bakPath)
+        } catch {
+          // no original file to back up
+        }
+      }
       this._manifest = createEmptyManifest()
     }
   }
@@ -40,6 +48,16 @@ export class KnowledgeGraph {
 
   addEntity(entity: Entity): void {
     this._manifest.entities.push(entity)
+  }
+
+  deleteEntity(id: string): boolean {
+    const idx = this._manifest.entities.findIndex((e) => e.id === id)
+    if (idx === -1) return false
+    this._manifest.entities.splice(idx, 1)
+    this._manifest.relations = this._manifest.relations.filter(
+      (r) => r.from !== id && r.to !== id,
+    )
+    return true
   }
 
   addRelation(relation: Relation): void {

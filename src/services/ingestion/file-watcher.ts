@@ -48,7 +48,14 @@ export class FileWatcher {
     try {
       const data = await fs.readFile(this._manifestPath, "utf-8")
       return JSON.parse(data) as IndexManifest
-    } catch {
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        try {
+          await fs.copyFile(this._manifestPath, this._manifestPath + ".bak")
+        } catch {
+          // no original file
+        }
+      }
       return createEmptyManifest()
     }
   }
@@ -84,12 +91,20 @@ export class FileWatcher {
 
   private async scanPdfFiles(folderPath: string): Promise<string[]> {
     const files: string[] = []
-    const entries = await fs.readdir(folderPath, { withFileTypes: true })
-    for (const entry of entries) {
-      if (entry.isFile() && entry.name.toLowerCase().endsWith(".pdf")) {
-        files.push(path.join(folderPath, entry.name))
+
+    async function walk(dir: string): Promise<void> {
+      const entries = await fs.readdir(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          await walk(fullPath)
+        } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".pdf")) {
+          files.push(fullPath)
+        }
       }
     }
+
+    await walk(folderPath)
     files.sort()
     return files
   }

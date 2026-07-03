@@ -1,4 +1,5 @@
 import { Entity, IndexManifest } from "../../types"
+import { getSubDir, safeFileName } from "../../utils"
 
 const TYPE_LABELS: Record<string, string> = {
   material: "Материалы",
@@ -18,6 +19,10 @@ const ENTITY_TYPES = [
 ] as const
 
 export class IndexGenerator {
+  constructor(
+    private _nikelDir: string = "nikel",
+  ) {}
+
   generateIndex(manifest: IndexManifest): string {
     const lines: string[] = [
       "---",
@@ -53,7 +58,7 @@ export class IndexGenerator {
 
       const sorted = [...entities].sort((a, b) => a.name.localeCompare(b.name))
       for (const entity of sorted) {
-        const link = `[[nikel/${this.getSubDir(type)}/${this.safeFileName(entity.name)}]]`
+        const link = `[[${this._nikelDir}/${getSubDir(type)}/${safeFileName(entity.name)}]]`
         const tags = entity.tags.map((t) => `#${t}`).join(" ")
         lines.push(`- ${link} ${tags}`)
       }
@@ -97,34 +102,11 @@ export class IndexGenerator {
       lines.push("")
       for (const type of ENTITY_TYPES) {
         const label = TYPE_LABELS[type] || type
-        lines.push(`- \`${this.getSubDir(type)}/\` — ${label}`)
+        lines.push(`- \`${getSubDir(type)}/\` — ${label}`)
       }
     }
 
     return lines.join("\n")
-  }
-
-  private getSubDir(type: string): string {
-    const map: Record<string, string> = {
-      material: "materials",
-      experiment: "experiments",
-      property: "properties",
-      mode: "modes",
-      equipment: "equipment",
-      team: "teams",
-      person: "persons",
-      conclusion: "conclusions",
-      topic: "topics",
-    }
-    return map[type] || "other"
-  }
-
-  private safeFileName(name: string): string {
-    return name
-      .replace(/[\\/:*?"<>|]/g, "-")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "")
   }
 
   private toMermaidId(id: string): string {
