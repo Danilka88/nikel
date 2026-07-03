@@ -343,6 +343,27 @@ PDF-файл → pdfjs-dist getTextContent (fast mode) →
 
 ---
 
+### Детальная таблица технологий по режимам
+
+| Технология / Компонент | **Vision (Полный)** | **Fast (Быстрый)** | **Direct (Прямой + RAG)** |
+|---|---|---|---|
+| **Рендеринг PDF** | pdfjs-dist v4 → PNG 200 DPI (каждая страница) | pdfjs-dist v4 → getTextContent (текстовый слой) | pdfjs-dist v4 → getTextContent |
+| **Извлечение текста** | Vision LLM (`/api/chat` + `images[]`) — Gemma 4 / LLaVA | getTextContent (≥200 chars) / Vision fallback (<200 chars) | getTextContent (fast mode, без Vision) |
+| **Чанкинг** | Весь документ целиком (EntityExtractor) | Весь документ целиком (EntityExtractor) | Semantic Chunking по параграфам `\n\n`, overlap=200 для длинных |
+| **Эмбеддинги** | ❌ | ❌ | ✅ Ollama `/api/embed` (batch-mode), model: `nomic-embed-text` / `all-minilm` |
+| **Хранилище знаний** | KnowledgeGraph (in-memory JSON, 12 entity types) | KnowledgeGraph (in-memory JSON, 12 entity types) | DocumentStore (TextChunk[] + number[] embeddings) |
+| **Поисковый движок** | BFS Cluster + LLM Entity Extraction | BFS Cluster + LLM Entity Extraction | **Гибридный:** BM25 (30%) + Cosine Similarity (70%), TOP_K_RERANK=20 |
+| **Query Enhancement** | ❌ | ❌ | ✅ Query Rewriting (LLM → синонимы + английские термины, fallback на оригинал) |
+| **LLM на индексацию** | Vision LLM на каждую страницу + EntityExtractor | Vision LLM (fallback) + EntityExtractor | Batch Embeddings (опционально, 1 запрос на документ) |
+| **LLM на поиск** | EntityExtraction + генерация ответа с контекстом | EntityExtraction + генерация ответа с контекстом | Query Rewriting + генерация ответа с контекстом чанков |
+| **Ключевой алгоритм** | Prompt Engineering + JSON Schema Extraction | Threshold 200 chars + Escalating timeout (90→180→360s) | Tokenize() + BM25Okapi(k1=1.5, b=0.75) + CosineSimilarity |
+| **Отказоустойчивость** | Escalating timeout, Promise.allSettled per page | Fallback Vision при <200 chars, allSettled | Fallback keyword search при ошибке эмбеддингов, fallback оригинал при ошибке rewriting |
+| **Требования к модели** | Vision-модель (LLaVA 7B+, Gemma 4) | Vision-модель опционально | Любая chat-модель + embedding-модель |
+| **Скорость индексации** | ~5-15 с/страница | ~мс/страница (95%), ~5-15 с (5%) | ~с/файл |
+| **Когда выбирать** | Сканы, схемы, максимальное качество | Текстовые PDF, лучший баланс | Быстрый RAG без графа, слабые машины |
+
+---
+
 ## Почему Nikel — лучшее решение для «Научного клубка»
 
 ### ✅ Решает каждую из заявленных проблем
