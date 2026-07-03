@@ -33,6 +33,7 @@ describe("QueryEngine", () => {
         chat: vi.fn()
           .mockResolvedValueOnce('["Сплав-X"]')           // extractEntities
           .mockResolvedValueOnce("[[Сплав-X]] использован в [[Эксперимент-1]]"), // generateAnswer
+        getEmbeddings: vi.fn().mockResolvedValue([]),
         listModels: vi.fn(),
       }
 
@@ -51,6 +52,7 @@ describe("QueryEngine", () => {
         chat: vi.fn()
           .mockResolvedValueOnce('["Unknown"]')           // extractEntities
           .mockResolvedValueOnce("Нет информации"),        // generateAnswer
+        getEmbeddings: vi.fn().mockResolvedValue([]),
         listModels: vi.fn(),
       }
 
@@ -67,6 +69,7 @@ describe("QueryEngine", () => {
         chat: vi.fn()
           .mockResolvedValueOnce('["Сплав-X"]')           // extractEntities
           .mockResolvedValueOnce("[[Эксперимент-1]] при 800°C"), // generateAnswer
+        getEmbeddings: vi.fn().mockResolvedValue([]),
         listModels: vi.fn(),
       }
 

@@ -11,6 +11,8 @@ function createMockPlugin(commands = DEFAULT_SETTINGS.commands) {
     docxFolder: "",
     nikelDir: "nikel",
     indexingMode: "vision",
+    embeddingModel: "nomic-embed-text",
+    embeddingEnabled: false,
     commands,
   }
   return {

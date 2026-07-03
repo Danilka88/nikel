@@ -14,6 +14,8 @@ export interface NikelSettings {
   docxFolder: string
   nikelDir: string
   indexingMode: IndexingMode
+  embeddingModel: string
+  embeddingEnabled: boolean
 }
 
 export interface TriggerMatch {
@@ -30,9 +32,16 @@ export interface GenerateOptions {
   timeoutMs?: number
 }
 
+export interface EmbeddingOptions {
+  model: string
+  url: string
+  input: string | string[]
+}
+
 export interface OllamaClient {
   generate(opts: GenerateOptions): Promise<string>
   chat(opts: ChatOptions): Promise<string>
+  getEmbeddings(opts: EmbeddingOptions): Promise<number[][]>
   listModels(url: string): Promise<string[]>
 }
 
@@ -139,6 +148,7 @@ export interface TextChunk {
   pageNum: number
   chunkIndex: number
   text: string
+  embeddings?: number[]
 }
 
 export interface ExtractionResult {
@@ -226,6 +236,8 @@ export const DEFAULT_SETTINGS: NikelSettings = {
   docxFolder: "",
   nikelDir: "nikel",
   indexingMode: "vision",
+  embeddingModel: "nomic-embed-text",
+  embeddingEnabled: true,
   commands: [
     {
       trigger: "@nikel_s",

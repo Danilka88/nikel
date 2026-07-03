@@ -249,10 +249,10 @@ export default class NikelPlugin extends Plugin {
           if (this.settings.indexingMode === "direct") {
             if (ext === ".pdf") {
               for (let p = 0; p < extractResult.pages.length; p++) {
-                this.documentStore.addDocument(filePath, extractResult.pages[p], p + 1)
+                await this.addWithEmbeddings(filePath, extractResult.pages[p], p + 1)
               }
             } else {
-              this.documentStore.addDocument(filePath, extractResult.markdown)
+              await this.addWithEmbeddings(filePath, extractResult.markdown)
             }
           } else {
             const result = await this.entityExtractor.extract(
@@ -509,11 +509,31 @@ export default class NikelPlugin extends Plugin {
     new Notice("🔍 Ищу в текстовом индексе...")
 
     try {
-      const chunks = this.documentStore.search(input, 5)
+      const rewrittenQuery = await this.rewriteQuery(input)
+      await this.logger.info("Query rewritten", { original: input.slice(0, 100), rewritten: rewrittenQuery.slice(0, 100) })
+
+      let queryEmbedding: number[] | undefined
+      if (this.settings.embeddingEnabled) {
+        try {
+          const result = await this.ollama.getEmbeddings({
+            model: this.settings.embeddingModel,
+            url: this.settings.ollamaUrl,
+            input: rewrittenQuery,
+          })
+          if (result.length > 0) queryEmbedding = result[0]
+        } catch (e) {
+          await this.logger.warn("Query embedding failed, falling back to keyword search", { error: toErrorMessage(e) })
+        }
+      }
+
+      let chunks = this.documentStore.search(rewrittenQuery, 5, queryEmbedding)
 
       if (chunks.length === 0) {
-        new Notice("Ничего не найдено в индексе")
-        return
+        chunks = this.documentStore.search(input, 3)
+        if (chunks.length === 0) {
+          new Notice("Ничего не найдено в индексе")
+          return
+        }
       }
 
       const contextParts = chunks.map(
@@ -549,6 +569,47 @@ export default class NikelPlugin extends Plugin {
     } catch (e) {
       await this.logger.error(`processWithDirectSearch failed: ${toErrorMessage(e)}`)
       new Notice(`❌ Ошибка: ${toErrorMessage(e)}`)
+    }
+  }
+
+  private async addWithEmbeddings(filePath: string, text: string, pageNum?: number): Promise<void> {
+    if (this.settings.embeddingEnabled) {
+      try {
+        const { semanticChunk } = await import("./utils")
+        const chunks = semanticChunk(text)
+        if (chunks.length > 0) {
+          const embeddings = await this.ollama.getEmbeddings({
+            model: this.settings.embeddingModel,
+            url: this.settings.ollamaUrl,
+            input: chunks,
+          })
+          for (let i = 0; i < chunks.length; i++) {
+            this.documentStore.addDocument(filePath, chunks[i], pageNum, embeddings[i])
+          }
+          return
+        }
+      } catch (e) {
+        await this.logger.warn(`Embeddings failed for ${filePath}, falling back to plain text`, { error: toErrorMessage(e) })
+      }
+    }
+    this.documentStore.addDocument(filePath, text, pageNum)
+  }
+
+  private async rewriteQuery(input: string): Promise<string> {
+    if (!this.settings.embeddingEnabled) return input
+    try {
+      const response = await this.ollama.chat({
+        model: this.settings.model,
+        url: this.settings.ollamaUrl,
+        messages: [{
+          role: "user",
+          content: `Перепиши следующий вопрос для улучшения поиска в научной базе знаний. Добавь релевантные научные термины и синонимы (включая английские, если уместно). Сохрани числовые параметры и ограничения. Верни ТОЛЬКО улучшенный запрос, без пояснений.\n\nИсходный вопрос: ${input}\n\nУлучшенный запрос:`,
+        }],
+      })
+      const trimmed = response.trim()
+      return trimmed || input
+    } catch {
+      return input
     }
   }
 

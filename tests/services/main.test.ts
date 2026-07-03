@@ -22,6 +22,8 @@ describe("NikelPlugin", () => {
         docxFolder: "",
         nikelDir: "nikel",
         indexingMode: "vision",
+        embeddingModel: "nomic-embed-text",
+        embeddingEnabled: false,
         commands: [
           {
             trigger: "@nikel_s",
@@ -40,6 +42,8 @@ describe("NikelPlugin", () => {
 
     plugin.ollama = {
       generate: vi.fn().mockResolvedValue("Hello! This is a response."),
+      chat: vi.fn().mockResolvedValue("Hello! This is a response."),
+      getEmbeddings: vi.fn().mockResolvedValue([[0.1, 0.2, 0.3]]),
       listModels: vi.fn().mockResolvedValue(["gemma4:e4b"]),
     } as any
 
@@ -251,7 +255,7 @@ describe("NikelPlugin", () => {
 
       await plugin.processNikelTask()
 
-      expect(plugin.documentStore.search).toHaveBeenCalledWith("lithium battery", 5)
+      expect(plugin.documentStore.search).toHaveBeenCalledWith("lithium battery", 5, undefined)
       expect(plugin.ollama.chat).toHaveBeenCalled()
       expect(editor.replaceRange).toHaveBeenCalled()
     })

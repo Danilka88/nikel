@@ -6,6 +6,7 @@ function mockOllama(response: string): OllamaClient {
   return {
     generate: vi.fn(),
     chat: vi.fn().mockResolvedValue(response),
+    getEmbeddings: vi.fn().mockResolvedValue([]),
     listModels: vi.fn(),
   }
 }

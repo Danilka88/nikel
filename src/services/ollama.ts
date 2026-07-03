@@ -1,4 +1,4 @@
-import { ChatOptions, GenerateOptions, OllamaClient } from "../types"
+import { ChatOptions, EmbeddingOptions, GenerateOptions, OllamaClient } from "../types"
 
 const DEFAULT_TIMEOUT_MS = 120_000
 const MAX_RETRIES = 1
@@ -120,6 +120,22 @@ export class DefaultOllamaClient implements OllamaClient {
     } catch (err) {
       throw enhanceError(err, apiUrl)
     }
+  }
+
+  async getEmbeddings(opts: EmbeddingOptions): Promise<number[][]> {
+    const url = this.normalizeUrl(opts.url, "/api/embed")
+    const body = JSON.stringify({ model: opts.model, input: opts.input })
+    const res = await this._fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`HTTP ${res.status}: ${text}`)
+    }
+    const data = (await res.json()) as Record<string, unknown>
+    if (Array.isArray(data.embeddings)) return data.embeddings as number[][]
+    throw new Error(`Некорректный ответ embeddings: ${typeof data.error === "string" ? data.error : "неизвестный формат"}`)
   }
 
   private async rawFetch(

@@ -27,6 +27,7 @@ function createMockOllama(): OllamaClient {
     generate: vi.fn(),
     chat: vi.fn()
       .mockResolvedValue("## Page markdown content\n\nTest data"),
+    getEmbeddings: vi.fn().mockResolvedValue([[0.1, 0.2, 0.3]]),
     listModels: vi.fn(),
   }
 }

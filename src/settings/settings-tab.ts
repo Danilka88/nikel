@@ -186,6 +186,33 @@ export class NikelSettingTab extends PluginSettingTab {
           }),
       )
 
+    containerEl.createEl("h3", { text: "Векторный поиск (RAG)" })
+
+    new Setting(containerEl)
+      .setName("Модель эмбеддингов")
+      .setDesc("Модель Ollama для генерации эмбеддингов (например nomic-embed-text, all-minilm)")
+      .addText((text) =>
+        text
+          .setPlaceholder("nomic-embed-text")
+          .setValue(this.plugin.settings.embeddingModel)
+          .onChange(async (value) => {
+            this.plugin.settings.embeddingModel = value
+            await this.plugin.saveSettings()
+          }),
+      )
+
+    new Setting(containerEl)
+      .setName("Эмбеддинги")
+      .setDesc("Генерировать эмбеддинги для гибридного поиска (BM25 + семантический). Отключите если нет модели эмбеддингов")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.embeddingEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.embeddingEnabled = value
+            await this.plugin.saveSettings()
+          }),
+      )
+
     new Setting(containerEl)
       .setName("Статус базы знаний")
       .setDesc("Количество сущностей и связей в графе")

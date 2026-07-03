@@ -314,7 +314,9 @@ graph.load() / documentStore.load()
 Для каждого нового/изменённого файла:
   fs.readFile() → Uint8Array.from(raw) → extract (pdf/txt/docx)
   ↓
-  direct mode: documentStore.addDocument(sourcePath, markdown, pageNum)
+  direct mode: main.addWithEmbeddings(sourcePath, markdown, pageNum)
+               → если embeddingEnabled: semanticChunk → ollama.getEmbeddings({ input: chunks }) → addChunk() для каждого
+               → fallback: documentStore.addDocument() (без эмбеддингов, внутренний semanticChunk)
   graph mode:  entityExtractor.extract(md) → Entity[] + Relation[]
                detectSourceType(relPath) → entity.sourceType
                graph.mergeIndex(...) → dedup + merge
@@ -352,7 +354,7 @@ ProgressModal с <progress> и названием текущего файла
 | `CanvasGenerator` | `nikelDir: string` + `vaultRelDir: string` |
 | `IndexGenerator` | `nikelDir: string` |
 | `FileWatcher` | `nikelDir: string` |
-| `DocumentStore` | `nikelDir: string` |
+| `DocumentStore` | `nikelDir: string` (также предоставляет `addChunk()`, `computeQueryEmbedding()` через callback `setEmbeddingFn()`) |
 | `FileLogger` | `nikelDir: string` |
 
 ### 7.2 Entity Extraction
@@ -469,6 +471,18 @@ safeFileName(name: string): string
 
 detectSourceType(relPath: string): Entity["sourceType"]
   // "Статьи/..." → "article", иначе "other"
+
+cosineSimilarity(a: number[], b: number[]): number
+  // a·b / (|a|*|b|). Возвращает 0 при нулевой длине.
+
+bm25(query: string[], doc: string[], avgDocLen: number, docLen: number, getDocFreq: (term: string) => number, numDocs: number): number
+  // BM25Okapi: IDF = ln(1 + (N - df + 0.5) / (df + 0.5)), k1=1.5, b=0.75. 0 при пустых query/doc.
+
+tokenize(text: string): string[]
+  // lowercase → /\p{L}+/gu (unicode-aware, работает с кириллицей). Пустой → [].
+
+semanticChunk(text: string, maxSize=1000, overlap=200): string[]
+  // Деление по \n\n (параграфы). Параграфы > maxSize → скользящее окно 1000/200. Пустой → [].
 ```
 
 **TYPE_DIR_MAP** (12 записей): `material→materials, experiment→experiments, property→properties, mode→modes, equipment→equipment, team→teams, person→persons, conclusion→conclusions, topic→topics, publication→publications, process→processes, facility→facilities`. `equipment` = irregular plural (same form).
@@ -490,6 +504,7 @@ detectSourceType(relPath: string): Entity["sourceType"]
 
 - `generate(opts)` — `/api/generate` (старый API, prompt-based), валидация `typeof data.response === "string"`
 - `chat(opts)` — `/api/chat` (messages-based, `images[]` для Vision), валидация `data.message?.content`
+- `getEmbeddings(opts)` — `/api/embed` (Ollama batch-embedding), валидация `Array.isArray(data.embeddings)`, возвращает `number[][]`
 - `listModels(url)` — `/api/tags`, `fetchWithTimeout` (120s)
 - **Таймаут:** AbortController + setTimeout. Если `opts.signal` передан — использует его, иначе создаёт свой с `timeoutMs ?? 120_000`
 - **Валидация ответа:** generate() — `typeof data.response === "string"`; chat() — `data.message?.content`; при невалидном — `data.error || generic`
@@ -522,10 +537,14 @@ detectSourceType(relPath: string): Entity["sourceType"]
 - **`.docx`:** `mammoth.convertToMarkdown({ buffer })` (pure JS). При ошибке → `{ markdown: "", pageCount: 0, pages: [] }` (никогда не throw).
 - Формат выхода совпадает с `PdfExtractResult` для единообразной обработки.
 
-### 9.4 DocumentStore (прямой режим)
+### 9.4 DocumentStore (прямой режим) — гибридный RAG
 
-- **Чанкинг:** 1000 символов overlap 200. Скользящее окно: start += 800. Если текст ≤ 1000 → [text].
-- **Search:** токенизация query `split(/\s+/).filter(Boolean)` → scoring по количеству совпадений слов в тексте чанка (case-insensitive `.includes()`). Filter score > 0, sort desc, topK.
+- **Чанкинг:** семантический — деление по параграфам (`\n\n`); если параграф > 1000 символов — скользящее окно 1000/200 (overlap 200). Текст без параграфов → скользящее окно.
+- **Гибридный поиск:** BM25 (ключевые слова, вес 0.3) + cosine similarity (семантика, вес 0.7). Query embedding вычисляется отдельно через `computeQueryEmbedding()` перед вызовом `search()`.
+- **TOP_K_RERANK=20:** сначала отбирает 20 кандидатов, затем topK (5).
+- **Keyword fallback:** если эмбеддинги отключены (`!hasEmbeddings || !queryEmbedding`) → `keywordSearch()` (case-insensitive `.includes()` по токенам).
+- **addDocument(source, text, page?, embeddings?)**: чанкует текст через `semanticChunk()`, присваивает embeddings только если один чанк (для batch-режима).
+- **addChunk(source, text, embedding, page?)**: добавить предварительно зачакованный текст с эмбеддингом (для batch из main.ts — `addWithEmbeddings`).
 - **save():** write → .tmp → rename (атомарно).
 - **load():** на любой ошибке → `this.chunks = []`.
 - **stats:** `{ totalChunks, totalSources }` (source = уникальные sourcePath).
@@ -574,7 +593,12 @@ detectSourceType(relPath: string): Entity["sourceType"]
 ### 9.8 Режимы работы
 
 - **Без графа** (ни одна папка не указана или граф пуст): `processDirect()` — LLM через `@nikel_*`
-- **Direct mode** (indexingMode === "direct" + есть папки): `processWithDirectSearch()` — `documentStore.search()` + `ollama.chat()` с контекстом
+- **Direct mode** (indexingMode === "direct" + есть папки): `processWithDirectSearch()`:
+  1. `rewriteQuery(input)` — LLM расширяет запрос (синонимы, английские термины), fallback на оригинал
+  2. Если `embeddingEnabled` — `ollama.getEmbeddings()` для query embedding
+  3. `documentStore.search(rewrittenQuery, 5, queryEmbedding)` — гибридный поиск
+  4. Если результатов нет — повторный поиск по оригинальному запросу (keyword fallback)
+  5. `ollama.chat()` с контекстом найденных документов
 - **Graph mode** (есть папки + entities.length > 0): `processWithGraph()` — QueryEngine + ответ с контекстом
 - **@nikel_f** — всегда `processDirect()` (исправление форматирования, без контекста)
 
@@ -584,11 +608,11 @@ detectSourceType(relPath: string): Entity["sourceType"]
 |-------|-----|----------|-----|-----------|
 | `"vision"` | PNG (200 DPI) → Vision LLM → Markdown | TextExtractor | EntityExtractor | KnowledgeGraph |
 | `"fast"` | `getPageText()` < 200 chars → Vision fallback | TextExtractor | EntityExtractor | KnowledgeGraph |
-| `"direct"` | `getPageText()` (fast mode, без Vision) | TextExtractor | Без LLM | DocumentStore |
+| `"direct"` | `getPageText()` (fast mode, без Vision) | TextExtractor | `addWithEmbeddings()` — batch эмбеддинги через `/api/embed` | DocumentStore (гибридный RAG) |
 
 - **"vision"** (по умолчанию): ~5-15 сек/страница, работает для любых PDF (текст, сканы, схемы)
 - **"fast":** миллисекунды для текстовых PDF, Vision fallback для сканов/схем/таблиц
-- **"direct":** секунды, подходит когда не нужен граф знаний (RAG без эмбеддингов)
+- **"direct":** секунды для индексации + гибридный поиск (BM25 + cosine similarity). Эмбеддинги опционально (`embeddingEnabled`). Query-rewriting через LLM на этапе поиска.
 
 ### 9.10 runIndexing — guard и try/finally
 
