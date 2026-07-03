@@ -100,21 +100,37 @@ export class NikelSettingTab extends PluginSettingTab {
           }),
       )
       .addButton((btn) =>
-        btn.setButtonText("Обзор").onClick(async () => {
-          try {
-            const { dialog } = require("electron")
-            const result = await dialog.showOpenDialog({
-              title: "Выберите папку с PDF",
-              properties: ["openDirectory"],
-            })
-            if (!result.canceled && result.filePaths.length > 0) {
-              this.plugin.settings.pdfFolder = result.filePaths[0]
-              await this.plugin.saveSettings()
+        btn.setButtonText("Обзор").onClick(() => {
+          const input = document.createElement("input")
+          input.type = "file"
+          input.setAttribute("webkitdirectory", "")
+          input.setAttribute("directory", "")
+          input.style.display = "none"
+
+          input.addEventListener("change", () => {
+            if (input.files && input.files.length > 0) {
+              const file = input.files[0] as any
+              const relPath: string = file.webkitRelativePath || ""
+              const fullPath: string = file.path || ""
+              let folderPath: string
+              if (relPath && fullPath) {
+                folderPath = fullPath.slice(0, -relPath.length - 1)
+              } else if (fullPath) {
+                folderPath = fullPath.replace(/\/[^/]+$/, "")
+              } else {
+                new Notice("Не удалось определить путь к папке")
+                document.body.removeChild(input)
+                return
+              }
+              this.plugin.settings.pdfFolder = folderPath
+              this.plugin.saveSettings()
               this.display()
             }
-          } catch {
-            new Notice("Выбор папки доступен только в десктопной версии Obsidian")
-          }
+            document.body.removeChild(input)
+          })
+
+          document.body.appendChild(input)
+          input.click()
         }),
       )
 
