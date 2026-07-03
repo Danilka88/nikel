@@ -1,4 +1,4 @@
-import { Entity, IndexManifest } from "../../types"
+import { IndexManifest } from "../../types"
 import { getSubDir, safeFileName } from "../../utils"
 
 const TYPE_LABELS: Record<string, string> = {
@@ -11,11 +11,15 @@ const TYPE_LABELS: Record<string, string> = {
   person: "Исследователи",
   conclusion: "Выводы",
   topic: "Темы",
+  publication: "Публикации",
+  process: "Процессы",
+  facility: "Установки и площадки",
 }
 
 const ENTITY_TYPES = [
   "material", "experiment", "property", "mode",
   "equipment", "team", "person", "conclusion", "topic",
+  "publication", "process", "facility",
 ] as const
 
 export class IndexGenerator {

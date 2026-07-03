@@ -27,6 +27,11 @@ export class MdGenerator {
       frontmatter.aliases = entity.aliases
     }
 
+    if (entity.confidence) frontmatter.confidence = entity.confidence
+    if (entity.geography) frontmatter.geography = entity.geography
+    if (entity.year) frontmatter.year = entity.year
+    if (entity.sourceType) frontmatter.sourceType = entity.sourceType
+
     const relatedEntities = relations
       .filter((r) => r.from === entity.id || r.to === entity.id)
       .map((r) => {
@@ -148,6 +153,11 @@ export class MdGenerator {
       leads_to: "conclusion",
       related_to: "related",
       precedes: "precedes",
+      described_in: "source",
+      operates_at_condition: "condition",
+      produces_output: "output",
+      validated_by: "validated",
+      contradicts: "contradicts",
     }
 
     for (const rel of relations) {

@@ -57,6 +57,9 @@ export type EntityType =
   | "person"
   | "conclusion"
   | "topic"
+  | "publication"
+  | "process"
+  | "facility"
 
 export interface Entity {
   id: string
@@ -68,6 +71,10 @@ export interface Entity {
   source: string
   sourcePage?: number
   context?: string
+  confidence?: "high" | "medium" | "low"
+  geography?: "ru" | "foreign" | "both"
+  year?: number
+  sourceType?: "article" | "report" | "patent" | "conference" | "review" | "dissertation" | "other"
   createdAt: string
   updatedAt: string
 }
@@ -81,6 +88,11 @@ export type RelationType =
   | "leads_to"
   | "related_to"
   | "precedes"
+  | "described_in"
+  | "operates_at_condition"
+  | "produces_output"
+  | "validated_by"
+  | "contradicts"
 
 export interface Relation {
   from: string
@@ -132,6 +144,17 @@ export interface PdfExtractResult {
 export interface ExtractionResult {
   entities: Entity[]
   relations: Relation[]
+}
+
+export interface SearchFilters {
+  text?: string
+  types?: EntityType[]
+  geography?: "ru" | "foreign" | "both"
+  yearMin?: number
+  yearMax?: number
+  confidence?: "high" | "medium" | "low"
+  tags?: string[]
+  numericParams?: { name: string; operator: "lt" | "lte" | "gt" | "gte" | "eq"; value: number; unit?: string }[]
 }
 
 export interface FileChanges {

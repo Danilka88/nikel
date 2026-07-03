@@ -1,6 +1,6 @@
 import * as fs from "fs/promises"
 import * as path from "path"
-import { Entity, IndexManifest, Relation, createEmptyManifest } from "../../types"
+import { Entity, IndexManifest, Relation, SearchFilters, createEmptyManifest } from "../../types"
 import { normalizeName } from "../ingestion/entity-extractor"
 
 export class KnowledgeGraph {
@@ -134,6 +134,10 @@ export class KnowledgeGraph {
         existing.properties = { ...existing.properties, ...entity.properties }
         existing.tags = [...new Set([...existing.tags, ...entity.tags])]
         existing.sourcePage = entity.sourcePage ?? existing.sourcePage
+        existing.confidence = entity.confidence ?? existing.confidence
+        existing.geography = entity.geography ?? existing.geography
+        existing.year = entity.year ?? existing.year
+        existing.sourceType = entity.sourceType ?? existing.sourceType
         if (entity.context && !existing.context?.includes(entity.context)) {
           existing.context = [existing.context, entity.context].filter(Boolean).join("\n")
         }
@@ -183,6 +187,71 @@ export class KnowledgeGraph {
     }
 
     return { entities: resultEntities, relations: resultRelations }
+  }
+
+  searchFiltered(filters: SearchFilters): { entities: Entity[]; relations: Relation[] } {
+    let result = this._manifest.entities
+
+    if (filters.text) {
+      const q = filters.text.toLowerCase()
+      result = result.filter((e) => {
+        if (e.name.toLowerCase().includes(q)) return true
+        if (e.aliases.some((a) => a.toLowerCase().includes(q))) return true
+        if (e.tags.some((t) => t.toLowerCase().includes(q))) return true
+        if (e.context?.toLowerCase().includes(q)) return true
+        return false
+      })
+    }
+
+    const { types, geography, yearMin, yearMax, confidence, tags, numericParams } = filters
+
+    if (types && types.length > 0) {
+      result = result.filter((e) => types.includes(e.type))
+    }
+
+    if (geography) {
+      result = result.filter((e) => e.geography === geography)
+    }
+
+    if (yearMin !== undefined) {
+      result = result.filter((e) => e.year !== undefined && e.year >= yearMin)
+    }
+
+    if (yearMax !== undefined) {
+      result = result.filter((e) => e.year !== undefined && e.year <= yearMax)
+    }
+
+    if (confidence) {
+      result = result.filter((e) => e.confidence === confidence)
+    }
+
+    if (tags && tags.length > 0) {
+      result = result.filter((e) => tags.some((t) => e.tags.includes(t)))
+    }
+
+    if (numericParams && numericParams.length > 0) {
+      result = result.filter((e) => {
+        return numericParams.every((np) => {
+          const propValue = e.properties[np.name] || e.properties[`${np.name} (${np.unit || ""})`]
+          if (!propValue) return false
+          const num = parseFloat(propValue)
+          if (isNaN(num)) return false
+          switch (np.operator) {
+            case "lt": return num < np.value
+            case "lte": return num <= np.value
+            case "gt": return num > np.value
+            case "gte": return num >= np.value
+            case "eq": return num === np.value
+            default: return false
+          }
+        })
+      })
+    }
+
+    const matchedIds = new Set(result.map((e) => e.id))
+    const relations = this._manifest.relations.filter((r) => matchedIds.has(r.from) || matchedIds.has(r.to))
+
+    return { entities: result, relations }
   }
 
   getStats(): { entityCount: number; relationCount: number; fileCount: number } {

@@ -198,6 +198,54 @@ describe("KnowledgeGraph", () => {
     })
   })
 
+  describe("searchFiltered", () => {
+    beforeEach(() => {
+      const e1 = makeEntity("e1", "Сплав-X", "material")
+      e1.geography = "ru"
+      e1.year = 2023
+      e1.confidence = "high"
+      e1.properties = { "Концентрация (мг/л)": "150" }
+      graph.addEntity(e1)
+      graph.addEntity(makeEntity("e2", "Сплав-Y", "material"))
+      const e3 = makeEntity("e3", "Эксперимент при 800°C", "experiment")
+      e3.geography = "foreign"
+      e3.year = 2024
+      graph.addEntity(e3)
+    })
+
+    it("filters by geography", () => {
+      const result = graph.searchFiltered({ geography: "ru" })
+      expect(result.entities).toHaveLength(1)
+      expect(result.entities[0].name).toBe("Сплав-X")
+    })
+
+    it("filters by year range", () => {
+      const result = graph.searchFiltered({ yearMin: 2024 })
+      expect(result.entities).toHaveLength(1)
+      expect(result.entities[0].name).toBe("Эксперимент при 800°C")
+    })
+
+    it("filters by confidence", () => {
+      const result = graph.searchFiltered({ confidence: "high" })
+      expect(result.entities).toHaveLength(1)
+    })
+
+    it("filters by numeric param", () => {
+      const result = graph.searchFiltered({ numericParams: [{ name: "Концентрация (мг/л)", operator: "lt", value: 200 }] })
+      expect(result.entities).toHaveLength(1)
+    })
+
+    it("filters by entity type", () => {
+      const result = graph.searchFiltered({ types: ["material"] })
+      expect(result.entities).toHaveLength(2)
+    })
+
+    it("returns empty when no match", () => {
+      const result = graph.searchFiltered({ geography: "both" })
+      expect(result.entities).toHaveLength(0)
+    })
+  })
+
   describe("getStats", () => {
     it("returns correct counts", () => {
       graph.addEntity(makeEntity("e1", "A", "material"))

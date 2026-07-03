@@ -1,4 +1,4 @@
-import { ChatOptions, Entity, OllamaClient, QueryResult, Relation } from "../../types"
+import { ChatOptions, Entity, OllamaClient, QueryResult, Relation, SearchFilters } from "../../types"
 import { KnowledgeGraph } from "./knowledge-graph"
 
 const EXTRACT_ENTITIES_PROMPT = `Извлеки ключевые сущности из вопроса научной тематики. Верни ТОЛЬКО JSON-массив строк без пояснений.
@@ -30,7 +30,7 @@ export class QueryEngine {
     private _options: { model: string; url: string },
   ) {}
 
-  async answerQuestion(question: string): Promise<QueryResult> {
+  async answerQuestion(question: string, filters?: SearchFilters): Promise<QueryResult> {
     const entityNames = await this.extractEntities(question)
 
     const foundEntities: Entity[] = []
@@ -41,10 +41,11 @@ export class QueryEngine {
       material: "materials", experiment: "experiments", property: "properties",
       mode: "modes", equipment: "equipment", team: "teams",
       person: "persons", conclusion: "conclusions", topic: "topics",
+      publication: "publications", process: "processes", facility: "facilities",
     }
 
     for (const name of entityNames) {
-      const results = this._graph.search(name)
+      const results = this._graph.searchFiltered({ ...filters, text: name })
       for (const e of results.entities) {
         if (!foundEntities.some((fe) => fe.id === e.id)) {
           foundEntities.push(e)

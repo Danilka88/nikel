@@ -1,4 +1,5 @@
 import * as path from "path"
+import * as fs from "fs/promises"
 import {
   Plugin,
   MarkdownView,
@@ -10,6 +11,7 @@ import {
   NikelSettings,
   DEFAULT_SETTINGS,
 } from "./types"
+import { detectSourceType } from "./utils"
 import { NikelSuggester } from "./suggester"
 import { DefaultOllamaClient } from "./services/ollama"
 import { findTrigger, buildPrompt } from "./services/trigger-parser"
@@ -146,7 +148,6 @@ export default class NikelPlugin extends Plugin {
         const fileName = filePath.split("/").pop() || filePath
         modal.setProgress(i + 1, totalFiles, `Обрабатываю: ${fileName}`)
 
-        const fs = await import("fs/promises")
         const buffer = await fs.readFile(filePath)
 
         const pdfResult = await this.pdfExtractor.extractPdf(
@@ -157,6 +158,11 @@ export default class NikelPlugin extends Plugin {
           pdfResult.markdown,
           filePath,
         )
+
+        const sourceType = detectSourceType(path.relative(this.settings.pdfFolder, filePath))
+        for (const entity of result.entities) {
+          entity.sourceType = sourceType
+        }
 
         if (result.entities.length > 0) {
           this.graph.mergeIndex({

@@ -32,11 +32,15 @@ main.ts (оркестрация, вызовы Obsidian API)
 ```
 
 **Директории на диске** (внутри vault, по умолчанию `nikel/`):
-- `nikel/materials/`, `nikel/experiments/`, `nikel/properties/` и т.д. — сгенерированные .md сущностей
+- `nikel/materials/`, `nikel/experiments/`, `nikel/properties/`, `nikel/modes/`, `nikel/equipment/`, `nikel/teams/`, `nikel/persons/`, `nikel/conclusions/`, `nikel/topics/`, `nikel/publications/`, `nikel/processes/`, `nikel/facilities/` — сгенерированные .md сущностей
 - `nikel/_answers/` — ответы @nikel_s (YYYY-MM-DD-HHmmss.md)
 - `nikel/canvas/` — .canvas файлы (обзор, хронология, кластеры)
 - `nikel/.nikel/file-hashes.json` — хеши PDF (FileWatcher)
 - `nikel/index.json` — граф знаний (KnowledgeGraph)
+
+**Источники** — одна корневая папка `pdfFolder` с вложенными подпапками по типу:
+- `Статьи/`, `Доклады/`, `Журналы/`, `Материалы конференций/`, `Обзоры/` и т.д.
+- Тип источника детектируется автоматически по имени подпапки через `detectSourceType()`
 
 ## 2. Конвенции кода
 
@@ -87,7 +91,7 @@ main.ts (оркестрация, вызовы Obsidian API)
 - **Расположение:** `tests/services/*.test.ts` (один файл на один сервис)
 - **Mock Obsidian:** `tests/__mocks__/obsidian.ts` — заглушки `Plugin`, `MarkdownView`, `Notice`, `Setting`, `Modal`, `EditorSuggest`, `TFile`
 - **Mock fetch:** передаётся в `DefaultOllamaClient(mockFetch)` — не использовать глобальный mock
-- **Всего:** 13 test-файлов, 106 тестов
+- **Всего:** 14 test-файлов, 124 теста
 
 ### 3.1 Правила тестирования
 
@@ -110,11 +114,12 @@ main.ts (оркестрация, вызовы Obsidian API)
 | `pdf-extractor` | `pdf-extractor.test.ts` | 7 |
 | `entity-extractor` | `entity-extractor.test.ts` | 9 |
 | `file-watcher` | `file-watcher.test.ts` | 5 |
-| `knowledge-graph` | `knowledge-graph.test.ts` | 17 |
+| `knowledge-graph` | `knowledge-graph.test.ts` | 23 |
 | `query-engine` | `query-engine.test.ts` | 3 |
-| `md-generator` | `md-generator.test.ts` | 6 |
+| `md-generator` | `md-generator.test.ts` | 8 |
 | `canvas-generator` | `canvas-generator.test.ts` | 6 |
 | `index-generator` | `index-generator.test.ts` | 5 |
+| `utils` | `utils.test.ts` | 10 |
 | `settings-tab` | — | UI-компонент, не тестируется |
 | `pdf-renderer` | — | требует реального PDF, не тестируется |
 | `progress-modal` | — | UI-компонент, не тестируется |
@@ -163,7 +168,15 @@ npm run dev       # esbuild в режиме watch
 
 ### 5.5 Knowledge Graph
 
-#### 5.5.1 Новый тип сущности
+#### 5.5.1 Текущая онтология
+
+**12 типов сущностей:** material, experiment, property, mode, equipment, team, person, conclusion, topic, publication, process, facility
+
+**13 типов связей:** uses_material, has_property, in_mode, uses_equipment, conducted_by, leads_to, related_to, precedes, described_in, operates_at_condition, produces_output, validated_by, contradicts
+
+**Метаданные Entity:** confidence (high/medium/low), geography (ru/foreign/both), year, sourceType (article/report/patent/conference/review/dissertation/other)
+
+#### 5.5.2 Новый тип сущности
 
 1. Добавить значение в `EntityType` в `types.ts`
 2. Добавить тип в `entity-extractor.ts` — prompt для LLM
@@ -171,14 +184,14 @@ npm run dev       # esbuild в режиме watch
 4. Тип появится в `TYPE_LABELS` (index-generator) и Dataview полях автоматически
 5. Тесты новых кейсов
 
-#### 5.5.2 Новый тип связи
+#### 5.5.3 Новый тип связи
 
 1. Добавить значение в `RelationType` в `types.ts`
 2. Добавить в `entity-extractor.ts` prompt
 3. Добавить в `relFieldMap` в `md-generator.ts` — Dataview-поле для этого типа связи
 4. Если связь влияет на layout canvas → canvas-generator.ts
 
-#### 5.5.3 Индексация (runIndexing)
+#### 5.5.4 Индексация (runIndexing)
 
 ```
 scan PDF folder → fileWatcher.scan() → сравнивает MD5 хеши
@@ -222,13 +235,18 @@ ProgressModal с <progress> и названием текущего файла
 ### 6.2 Entity Extraction
 
 - LLM возвращает строгий JSON — валидация схемы через type guard
-- **Runtime валидация типов:** `VALID_ENTITY_TYPES` / `VALID_RELATION_TYPES` — Set из допустимых строк
+- **Runtime валидация типов:** `VALID_ENTITY_TYPES` (12 типов) / `VALID_RELATION_TYPES` (13 типов) — Set из допустимых строк
 - Если JSON невалидный → повторный запрос к LLM (retry 1 раз)
 - Если повторно невалидный → throw Error с сырым ответом LLM (для отладки)
 - **Entity с неизвестным типом тихо пропускаются** (flatMap → return [])
 - `normalizeName()` — обязательный вызов перед dedup
 - `dedupEntities()` — merge по (type + normalizedName)
-- При дубликате: объединить aliases (Set), перезаписать properties (последний wins)
+- При дубликате: объединить aliases (Set), перезаписать properties (последний wins), сохранить confidence/geography/year/sourceType (новый ?? существующий)
+- Новые optional-поля Entity:
+  - `confidence?: "high" | "medium" | "low"` — уровень достоверности
+  - `geography?: "ru" | "foreign" | "both"` — географическая принадлежность
+  - `year?: number` — год публикации
+  - `sourceType?: "article" | "report" | "patent" | "conference" | "review" | "dissertation" | "other"` — тип источника
 
 ### 6.3 Persistence
 
@@ -242,18 +260,26 @@ ProgressModal с <progress> и названием текущего файла
 
 - Всегда возвращает `QueryResult` — даже если ничего не найдено (empty contextMd)
 - **Извлечение имён из вопроса** через `extractEntities()` — LLM → JSON-массив строк
-- Поиск по графу через `graph.search()` — substring match по name, aliases, context, tags
+- Поиск по графу через `graph.search()` (text) или `graph.searchFiltered(filters)` (текст + тип + география + год + confidence + числовые диапазоны)
 - `contextMd` содержит `[[materials/Сплав-X.md|Сплав-X]]` (file path + display name), не голые имена
 - `linkedDocs` — массив vault-относительных путей для use in `[[links]]`
 - Если entity не найдены → LLM с контекстом `"В графе нет информации по вашему вопросу"`
 - Ответ LLM должен содержать `[[source links]]`
+- `answerQuestion(question, filters?)` — опциональный параметр `SearchFilters`:
+  - `types: EntityType[]` — фильтр по типу сущности
+  - `geography: "ru" | "foreign" | "both"` — география
+  - `yearMin / yearMax` — диапазон лет
+  - `confidence: "high" | "medium" | "low"`
+  - `tags: string[]`
+  - `numericParams: [{ name, operator ("lt"|"lte"|"gt"|"gte"|"eq"), value, unit? }]`
 
 ### 6.5 MD Generation
 
 - Имя файла: `{safeFileName(name)}.md` (safeFileName удаляет `/\:*?"<>|` и лишние пробелы)
 - Каждый `.md` содержит Dataview-совместимые поля в frontmatter:
   - `id:`, `type:`, `name:`, `tags:`, `aliases:`
-  - relation-поля: `material::`, `mode::`, `property::` и т.д. (по типу связи)
+  - relation-поля: `material`, `mode`, `property`, `equipment`, `team`, `conclusion`, `related`, `precedes`, `source` (described_in), `condition` (operates_at_condition), `output` (produces_output), `validated` (validated_by), `contradicts`
+  - метаданные (если есть): `confidence`, `geography`, `year`, `sourceType`
 - Каждый `.md` содержит `[[links]]` на связанные сущности (все типы связей, а не subset)
 - `_answers/` — документы-ответы от @nikel_s, создаётся автоматически при первом сохранении
 - `_answers/YYYY-MM-DD-HHmmss.md` — формат имени файла ответа
@@ -273,13 +299,15 @@ ProgressModal с <progress> и названием текущего файла
 ## 7. Утилиты (src/utils.ts)
 
 ```typescript
-getSubDir(type: string): string  // material → "materials", experiment → "experiments"...
-safeFileName(name: string): string  // sanitize для имён файлов
+getSubDir(type: string): string             // material → "materials", experiment → "experiments"...
+safeFileName(name: string): string           // sanitize для имён файлов
+detectSourceType(relPath: string): Entity["sourceType"]  // "Статьи/..." → "article"
 ```
 
-- `getSubDir()` — единый источник истины для маппинга EntityType → подпапка
+- `getSubDir()` — единый источник истины для маппинга EntityType → подпапка. 12 типов.
 - `safeFileName()` — удаляет `/\:*?"<>|`, схлопывает пробелы, убирает лидирующие/конечные дефисы
-- Используется всеми тремя генераторами (md, canvas, index)
+- `detectSourceType()` — определяет тип источника по имени подпапки в пути. Распознаёт: доклады, журналы, статьи, материалы конференций, обзоры, патенты, диссертации (русские имена). Неизвестное → "other".
+- Используются всеми генераторами (md, canvas, index) и main.ts
 
 ## 8. UI (src/ui/)
 
@@ -321,7 +349,9 @@ safeFileName(name: string): string  // sanitize для имён файлов
 4. Для каждого нового/изменённого файла:
    - `pdfExtractor.extractPdf(buffer)` → Vision LLM → Markdown
    - `entityExtractor.extract(md)` → Entity[] + Relation[]
-   - `graph.mergeIndex(...)` → dedup + merge
+   - `detectSourceType(relPath)` → sourceType (из подпапки: Статьи → article и т.д.)
+   - `entity.sourceType = sourceType` — проставляется на каждой сущности
+   - `graph.mergeIndex(...)` → dedup + merge (вкл. confidence/geography/year/sourceType)
 5. `fileWatcher.updateFileHashes()` + `graph.save()`
 6. Генерация .md для каждой сущности графа (не перезаписывает существующие)
 7. Генерация `_index.md`, `_graph.md`, `обзор-базы-знаний.canvas`
@@ -361,3 +391,8 @@ safeFileName(name: string): string  // sanitize для имён файлов
 - Сгенерированные `.md` в `nikel/` не удалять при переиндексации — только обновлять существующие и создавать новые
 - `_answers/` создаётся автоматически при первом сохранении ответа
 - `vaultBasePath` — через `"basePath" in adapter` type guard (без `as any`)
+- `detectSourceType()` определяет тип источника по имени подпапки относительно `pdfFolder`. В `main.ts` sourceType проставляется после entityExtractor.extract(), перед graph.mergeIndex()
+- `mergeIndex` и `dedupEntities` мерджят: aliases, properties, tags, sourcePage, context, confidence, geography, year, sourceType. Принцип: новое значение ?? существующее.
+- `searchFiltered` НЕ использует non-null `!` — все опциональные поля вынесены в локальные переменные до filter()
+- `import("fs/promises")` — только статический импорт, не в цикле
+- `122 тестов` (14 файлов), build prod ~1.1MB, tsc clean

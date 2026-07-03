@@ -65,6 +65,34 @@ describe("MdGenerator", () => {
 
       expect(result.content).toContain("## Сплав-X")
     })
+
+    it("includes confidence, geography, year, sourceType when present", () => {
+      const entity = makeEntity({ confidence: "high", geography: "ru", year: 2024, sourceType: "article" })
+      const result = generator.generateDoc(entity, [])
+
+      expect(result.content).toContain("confidence: high")
+      expect(result.content).toContain("geography: ru")
+      expect(result.content).toContain("year: 2024")
+      expect(result.content).toContain("sourceType: article")
+    })
+
+    it("includes new relation types in dataview fields", () => {
+      const entity = makeEntity()
+      const relations: Relation[] = [
+        { from: "mat-001", to: "pub-001", type: "described_in" },
+        { from: "mat-001", to: "prop-001", type: "operates_at_condition" },
+        { from: "mat-001", to: "end-001", type: "produces_output" },
+        { from: "con-001", to: "mat-001", type: "validated_by" },
+        { from: "mat-001", to: "con-002", type: "contradicts" },
+      ]
+      const result = generator.generateDoc(entity, relations)
+
+      expect(result.content).toContain("source:")
+      expect(result.content).toContain("condition:")
+      expect(result.content).toContain("output:")
+      expect(result.content).toContain("validated:")
+      expect(result.content).toContain("contradicts:")
+    })
   })
 
   describe("generateAnswerDoc", () => {
