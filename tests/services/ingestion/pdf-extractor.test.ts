@@ -112,6 +112,14 @@ describe("PdfExtractor", () => {
       .rejects.toThrow("persistent fail")
   })
 
+  it("fast mode uses short text when Vision fallback fails", async () => {
+    renderer.getPageText = vi.fn().mockResolvedValue("short")
+    renderer.renderToBlob = vi.fn().mockRejectedValue(new Error("vision timeout"))
+    const result = await extractor.extractPdf(new Uint8Array(10), "fast")
+
+    expect(result.markdown).toBe("short\n\nshort\n\nshort")
+  })
+
   it("accepts indexingMode override per call", async () => {
     renderer.getPageText = vi.fn().mockResolvedValue("x".repeat(300))
     const result = await extractor.extractPdf(new Uint8Array(10), "fast")

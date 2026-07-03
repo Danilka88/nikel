@@ -55,6 +55,8 @@ export class PdfExtractor {
 
   private async processPage(pageNum: number, indexingMode?: IndexingMode): Promise<string> {
     const mode = indexingMode || this._options.indexingMode
+    let fallbackText = ""
+
     if (mode === "fast") {
       try {
         const text = await this._renderer.getPageText(pageNum)
@@ -63,6 +65,7 @@ export class PdfExtractor {
           await this._logger?.info(`Page ${pageNum}: fast mode, extracted ${len} chars`, { pageNum: String(pageNum), mode: "fast-extract" })
           return text.trim()
         }
+        fallbackText = text.trim()
         await this._logger?.warn(`Page ${pageNum}: fast mode ${len} chars < 200 → Vision fallback`, { pageNum: String(pageNum), mode: "fast-fallback", chars: String(len) })
       } catch {
         await this._logger?.warn(`Page ${pageNum}: getPageText failed → Vision fallback`, { pageNum: String(pageNum), mode: "fast-fallback" })
@@ -99,6 +102,11 @@ export class PdfExtractor {
         lastError = err instanceof Error ? err : new Error(String(err))
         await this._logger?.warn(`Page ${pageNum}: attempt ${attempt + 1}/${MAX_RETRIES + 1} failed: ${lastError.message}`, { pageNum: String(pageNum), attempt: String(attempt + 1) })
       }
+    }
+
+    if (mode === "fast" && fallbackText) {
+      await this._logger?.warn(`Page ${pageNum}: Vision fallback failed, using short text (${fallbackText.length} chars)`, { pageNum: String(pageNum), mode: "fast-fallback-err" })
+      return fallbackText
     }
 
     throw lastError || new Error(`Failed to process page ${pageNum}`)

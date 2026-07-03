@@ -255,7 +255,7 @@ export default class NikelPlugin extends Plugin {
           }
         } catch (fileErr) {
           await this.logger.error(`Failed to process ${fileName}: ${(fileErr as Error).message}`, { file: fileName })
-          throw fileErr
+          new Notice(`⚠️ Ошибка при обработке ${fileName}: ${(fileErr as Error).message}`)
         }
       }
 
