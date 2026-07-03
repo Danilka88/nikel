@@ -1,6 +1,6 @@
 import { PdfPageRenderer } from "./pdf-extractor"
 
-const VERSION = "6.1.200"
+const VERSION = "4.10.38"
 const WORKER_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${VERSION}/build/pdf.worker.min.mjs`
 
 let pdfjsLib: typeof import("pdfjs-dist") | null = null
@@ -14,19 +14,23 @@ async function getPdfLib(): Promise<typeof import("pdfjs-dist")> {
 }
 
 export class DefaultPdfRenderer implements PdfPageRenderer {
-  async getPageCount(buffer: ArrayBuffer): Promise<number> {
+  private _doc: any = null
+
+  async load(data: Uint8Array): Promise<void> {
     const pdfjs = await getPdfLib()
-    const data = new Uint8Array(buffer.slice(0))
-    const doc = await pdfjs.getDocument({ data }).promise
-    return doc.numPages
+    const copy = data.slice()
+    this._doc = await pdfjs.getDocument({ data: copy }).promise
   }
 
-  async renderToBlob(buffer: ArrayBuffer, pageNum: number, dpi: number, maxDimension: number): Promise<Blob> {
-    const pdfjs = await getPdfLib()
-    const data = new Uint8Array(buffer.slice(0))
-    const doc = await pdfjs.getDocument({ data }).promise
+  async getPageCount(): Promise<number> {
+    if (!this._doc) throw new Error("PDF document not loaded")
+    return this._doc.numPages
+  }
 
-    const page = await doc.getPage(pageNum + 1)
+  async renderToBlob(pageNum: number, dpi: number, maxDimension: number): Promise<Blob> {
+    if (!this._doc) throw new Error("PDF document not loaded")
+
+    const page = await this._doc.getPage(pageNum + 1)
     const viewport = page.getViewport({ scale: 1 })
     const scale = Math.min(dpi / 72, maxDimension / Math.max(viewport.width, viewport.height))
     const scaledViewport = page.getViewport({ scale })
@@ -37,7 +41,7 @@ export class DefaultPdfRenderer implements PdfPageRenderer {
     const ctx = canvas.getContext("2d")
     if (!ctx) throw new Error("Could not get canvas 2D context")
 
-    await page.render({ canvas, viewport: scaledViewport }).promise
+    await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise
 
     return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
@@ -52,5 +56,12 @@ export class DefaultPdfRenderer implements PdfPageRenderer {
         else reject(new Error("canvas.toBlob returned null"))
       }, "image/png")
     })
+  }
+
+  async close(): Promise<void> {
+    if (this._doc) {
+      await this._doc.destroy()
+      this._doc = null
+    }
   }
 }

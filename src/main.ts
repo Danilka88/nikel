@@ -148,11 +148,10 @@ export default class NikelPlugin extends Plugin {
         const fileName = filePath.split("/").pop() || filePath
         modal.setProgress(i + 1, totalFiles, `Обрабатываю: ${fileName}`)
 
-        const buffer = await fs.readFile(filePath)
+        const raw = await fs.readFile(filePath)
+        const data = Uint8Array.from(raw)
 
-        const pdfResult = await this.pdfExtractor.extractPdf(
-          buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
-        )
+        const pdfResult = await this.pdfExtractor.extractPdf(data)
 
         const result = await this.entityExtractor.extract(
           pdfResult.markdown,

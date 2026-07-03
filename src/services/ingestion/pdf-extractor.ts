@@ -7,8 +7,10 @@ const AGGREGATION_PROMPT = `Ты получил markdown нескольких с
 const MAX_RETRIES = 2
 
 export interface PdfPageRenderer {
-  renderToBlob(buffer: ArrayBuffer, pageNum: number, dpi: number, maxDimension: number): Promise<Blob>
-  getPageCount(buffer: ArrayBuffer): Promise<number>
+  load(data: Uint8Array): Promise<void>
+  getPageCount(): Promise<number>
+  renderToBlob(pageNum: number, dpi: number, maxDimension: number): Promise<Blob>
+  close(): Promise<void>
 }
 
 export class PdfExtractor {
@@ -18,34 +20,39 @@ export class PdfExtractor {
     private _options: { dpi: number; maxDimension: number; parallelPages: number; visionModel: string; ollamaUrl: string },
   ) {}
 
-  async extractPdf(pdfBuffer: ArrayBuffer): Promise<PdfExtractResult> {
-    const pageCount = await this._renderer.getPageCount(pdfBuffer)
+  async extractPdf(pdfData: Uint8Array): Promise<PdfExtractResult> {
+    await this._renderer.load(pdfData)
     const pageMarkdowns: string[] = []
 
-    for (let i = 0; i < pageCount; i += this._options.parallelPages) {
-      const batch = []
-      const end = Math.min(i + this._options.parallelPages, pageCount)
-      for (let p = i; p < end; p++) {
-        batch.push(this.processPage(pdfBuffer, p))
+    try {
+      const pageCount = await this._renderer.getPageCount()
+
+      for (let i = 0; i < pageCount; i += this._options.parallelPages) {
+        const batch = []
+        const end = Math.min(i + this._options.parallelPages, pageCount)
+        for (let p = i; p < end; p++) {
+          batch.push(this.processPage(p))
+        }
+        const results = await Promise.all(batch)
+        pageMarkdowns.push(...results)
       }
-      const results = await Promise.all(batch)
-      pageMarkdowns.push(...results)
+
+      const markdown = pageCount > 1
+        ? await this.aggregatePages(pageMarkdowns)
+        : (pageMarkdowns[0] || "")
+
+      return { markdown, pageCount, pages: pageMarkdowns }
+    } finally {
+      await this._renderer.close()
     }
-
-    const markdown = pageCount > 1
-      ? await this.aggregatePages(pageMarkdowns)
-      : (pageMarkdowns[0] || "")
-
-    return { markdown, pageCount, pages: pageMarkdowns }
   }
 
-  private async processPage(buffer: ArrayBuffer, pageNum: number): Promise<string> {
+  private async processPage(pageNum: number): Promise<string> {
     let lastError: Error | undefined
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         const blob = await this._renderer.renderToBlob(
-          buffer,
           pageNum,
           this._options.dpi,
           this._options.maxDimension,
