@@ -261,6 +261,13 @@ export default class NikelPlugin extends Plugin {
 
       if (this.settings.indexingMode === "direct") {
         await this.documentStore.save()
+
+        const hashManifest = await this.fileWatcher.loadManifest()
+        hashManifest.lastIndexed = new Date().toISOString()
+        await this.fileWatcher.updateFileHashes(processedFiles, hashManifest)
+        await this.fileWatcher.removeFileHashes(allDeleted, hashManifest)
+        await this.fileWatcher.saveManifest(hashManifest)
+
         modal.setProgress(100, 100, "Сохранение завершено")
         modal.close()
         const ds = this.documentStore.stats
@@ -272,6 +279,7 @@ export default class NikelPlugin extends Plugin {
 
         this.graph.manifest.lastIndexed = new Date().toISOString()
         await this.graph.save()
+        await this.fileWatcher.saveManifest(this.graph.manifest)
 
         const vaultBase = this.vaultBasePath
         let generatedCount = 0
