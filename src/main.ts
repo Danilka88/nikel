@@ -24,6 +24,7 @@ import { QueryEngine } from "./services/graph/query-engine"
 import { EntityExtractor } from "./services/ingestion/entity-extractor"
 import { PdfExtractor } from "./services/ingestion/pdf-extractor"
 import { DefaultPdfRenderer } from "./services/ingestion/pdf-renderer"
+import { TextExtractor } from "./services/ingestion/text-extractor"
 import { FileLogger } from "./services/log-service"
 import { MdGenerator } from "./services/generation/md-generator"
 import { IndexGenerator } from "./services/generation/index-generator"
@@ -40,6 +41,7 @@ export default class NikelPlugin extends Plugin {
   queryEngine!: QueryEngine
   entityExtractor!: EntityExtractor
   pdfExtractor!: PdfExtractor
+  textExtractor!: TextExtractor
   logger!: FileLogger
   mdGenerator!: MdGenerator
   indexGenerator!: IndexGenerator
@@ -66,8 +68,8 @@ export default class NikelPlugin extends Plugin {
     })
 
     this.addCommand({
-      id: "nikel-index-pdfs",
-      name: "Индексировать PDF-папку",
+      id: "nikel-index-sources",
+      name: "Индексировать папки источников",
       icon: "nikel",
       callback: () => this.runIndexing(),
     })
@@ -98,6 +100,7 @@ export default class NikelPlugin extends Plugin {
       model: this.settings.model,
       url: this.settings.ollamaUrl,
     })
+    this.textExtractor = new TextExtractor()
     this.mdGenerator = new MdGenerator(nikelDir)
     this.indexGenerator = new IndexGenerator(nikelDir)
     this.canvasGenerator = new CanvasGenerator(nikelDir, this.settings.nikelDir)
@@ -126,34 +129,52 @@ export default class NikelPlugin extends Plugin {
   }
 
   async runIndexing(): Promise<void> {
-    if (!this.settings.pdfFolder) {
-      new Notice("Укажите папку с PDF в настройках Nikel")
+    const folders = [
+      { path: this.settings.pdfFolder, exts: [".pdf"], label: "PDF" },
+      { path: this.settings.txtFolder, exts: [".txt"], label: "TXT" },
+      { path: this.settings.docxFolder, exts: [".docx"], label: "DOCX" },
+    ].filter((f) => f.path)
+
+    if (folders.length === 0) {
+      new Notice("Укажите хотя бы одну папку с файлами в настройках Nikel")
       return
     }
 
-    const modal = new ProgressModal(this.app, "Индексация PDF")
+    const modal = new ProgressModal(this.app, "Индексация")
     modal.open()
 
     await this.logger.clear(this.manifest.version)
-    await this.logger.info("Starting PDF indexing", { folder: this.settings.pdfFolder })
+    for (const f of folders) {
+      await this.logger.info(`Source folder: ${f.label}`, { path: f.path })
+    }
 
     try {
-      modal.setProgress(0, 1, "Сканирую PDF-папку...")
+      modal.setProgress(0, 1, "Сканирую папки...")
+      await this.graph.load()
 
-      const changes = await this.fileWatcher.scan(this.settings.pdfFolder)
-      const totalChanges = changes.newFiles.length + changes.changedFiles.length + changes.deletedFiles.length
+      const allNew: string[] = []
+      const allChanged: string[] = []
+      const allDeleted: string[] = []
+
+      for (const f of folders) {
+        const changes = await this.fileWatcher.scan(f.path, f.exts)
+        allNew.push(...changes.newFiles)
+        allChanged.push(...changes.changedFiles)
+        allDeleted.push(...changes.deletedFiles)
+      }
+
+      const totalChanges = allNew.length + allChanged.length + allDeleted.length
 
       if (totalChanges === 0) {
         modal.close()
-        await this.logger.info("No changes found, all PDFs are current")
-        new Notice("✅ Изменений не найдено. Все PDF актуальны.")
+        await this.logger.info("No changes found, all files are current")
+        new Notice("✅ Изменений не найдено. Все файлы актуальны.")
         return
       }
 
-      await this.logger.info(`Found ${totalChanges} changes: ${changes.newFiles.length} new, ${changes.changedFiles.length} changed, ${changes.deletedFiles.length} deleted`)
-      await this.graph.load()
+      await this.logger.info(`Found ${totalChanges} changes: ${allNew.length} new, ${allChanged.length} changed, ${allDeleted.length} deleted`)
 
-      const processedFiles = [...changes.newFiles, ...changes.changedFiles]
+      const processedFiles = [...allNew, ...allChanged]
       const totalFiles = processedFiles.length
 
       for (let i = 0; i < totalFiles; i++) {
@@ -165,17 +186,32 @@ export default class NikelPlugin extends Plugin {
 
         const raw = await fs.readFile(filePath)
         const data = Uint8Array.from(raw)
+        const ext = path.extname(filePath).toLowerCase()
 
         try {
-          const pdfResult = await this.pdfExtractor.extractPdf(data)
-          await this.logger.info(`PDF extracted: ${pdfResult.pageCount} pages`, { file: fileName, pages: String(pdfResult.pageCount) })
+          let extractResult: import("./types").PdfExtractResult
+
+          if (ext === ".pdf") {
+            extractResult = await this.pdfExtractor.extractPdf(data)
+            await this.logger.info(`PDF extracted: ${extractResult.pageCount} pages`, { file: fileName, pages: String(extractResult.pageCount) })
+          } else if (ext === ".txt") {
+            extractResult = await this.textExtractor.extractTxt(data)
+            await this.logger.info(`TXT extracted: ${extractResult.markdown.length} chars`, { file: fileName })
+          } else if (ext === ".docx") {
+            extractResult = await this.textExtractor.extractDocx(data)
+            await this.logger.info(`DOCX extracted: ${extractResult.markdown.length} chars`, { file: fileName })
+          } else {
+            await this.logger.warn(`Unsupported file type: ${ext}`, { file: fileName })
+            continue
+          }
 
           const result = await this.entityExtractor.extract(
-            pdfResult.markdown,
+            extractResult.markdown,
             filePath,
           )
 
-          const sourceType = detectSourceType(path.relative(this.settings.pdfFolder, filePath))
+          const relPath = path.relative(folders[0].path, filePath)
+          const sourceType = detectSourceType(relPath)
           for (const entity of result.entities) {
             entity.sourceType = sourceType
           }
@@ -199,8 +235,8 @@ export default class NikelPlugin extends Plugin {
         }
       }
 
-      await this.fileWatcher.updateFileHashes(this.settings.pdfFolder, processedFiles, this.graph.manifest)
-      await this.fileWatcher.removeFileHashes(changes.deletedFiles, this.graph.manifest)
+      await this.fileWatcher.updateFileHashes(processedFiles, this.graph.manifest)
+      await this.fileWatcher.removeFileHashes(allDeleted, this.graph.manifest)
 
       this.graph.manifest.lastIndexed = new Date().toISOString()
       await this.graph.save()
@@ -290,7 +326,8 @@ export default class NikelPlugin extends Plugin {
       return
     }
 
-    const isGraphMode = this.settings.pdfFolder && this.graph.entities.length > 0
+    const hasSource = this.settings.pdfFolder || this.settings.txtFolder || this.settings.docxFolder
+    const isGraphMode = hasSource && this.graph.entities.length > 0
 
     if (isGraphMode) {
       await this.processWithGraph(match.input, match.line, editor)

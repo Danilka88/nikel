@@ -18,6 +18,8 @@ describe("NikelPlugin", () => {
         ollamaUrl: "http://localhost:11434",
         model: "gemma4:e4b",
         pdfFolder: "",
+        txtFolder: "",
+        docxFolder: "",
         nikelDir: "nikel",
         indexingMode: "vision",
         commands: [
@@ -30,6 +32,11 @@ describe("NikelPlugin", () => {
         ],
       }
     })
+
+    plugin.textExtractor = {
+      extractTxt: vi.fn().mockResolvedValue({ markdown: "text", pageCount: 1, pages: ["text"] }),
+      extractDocx: vi.fn().mockResolvedValue({ markdown: "docx", pageCount: 1, pages: ["docx"] }),
+    } as any
 
     plugin.ollama = {
       generate: vi.fn().mockResolvedValue("Hello! This is a response."),

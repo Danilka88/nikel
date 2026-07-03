@@ -3,28 +3,30 @@ import * as fs from "fs/promises"
 import * as path from "path"
 import { FileChanges, IndexManifest, createEmptyManifest } from "../../types"
 
+const DEFAULT_EXTENSIONS = [".pdf"]
+
 export class FileWatcher {
   constructor(
     private _nikelDir: string,
   ) {}
 
-  async scan(folderPath: string): Promise<FileChanges> {
-    const manifest = await this.loadManifest()
+  async scan(folderPath: string, extensions: string[] = DEFAULT_EXTENSIONS): Promise<FileChanges> {
+    const manifest = await this.loadAndMigrateManifest()
     const previousFiles = manifest.files
 
-    const currentFiles = await this.scanPdfFiles(folderPath)
-    const currentHashes: Record<string, string> = {}
+    const currentFiles = await this.scanFiles(folderPath, extensions)
+    const currentKeys = new Set<string>()
 
     const newFiles: string[] = []
     const changedFiles: string[] = []
     const unchangedFiles: string[] = []
 
     for (const filePath of currentFiles) {
-      const relPath = path.relative(folderPath, filePath)
+      const key = path.resolve(filePath)
+      currentKeys.add(key)
       const hash = await this.getFileHash(filePath)
-      currentHashes[relPath] = hash
 
-      const prevHash = previousFiles[relPath]
+      const prevHash = previousFiles[key]
       if (prevHash === undefined) {
         newFiles.push(filePath)
       } else if (prevHash !== hash) {
@@ -35,13 +37,30 @@ export class FileWatcher {
     }
 
     const deletedFiles: string[] = []
-    for (const relPath of Object.keys(previousFiles)) {
-      if (!currentHashes[relPath]) {
-        deletedFiles.push(relPath)
+    for (const key of Object.keys(previousFiles)) {
+      if (!currentKeys.has(key)) {
+        deletedFiles.push(key)
       }
     }
 
     return { newFiles, changedFiles, deletedFiles, unchangedFiles }
+  }
+
+  async updateFileHashes(files: string[], manifest: IndexManifest): Promise<void> {
+    for (const filePath of files) {
+      manifest.files[path.resolve(filePath)] = await this.getFileHash(filePath)
+    }
+  }
+
+  async removeFileHashes(fileKeys: string[], manifest: IndexManifest): Promise<void> {
+    for (const key of fileKeys) {
+      delete manifest.files[key]
+    }
+  }
+
+  async getFileHash(filePath: string): Promise<string> {
+    const content = await fs.readFile(filePath)
+    return crypto.createHash("md5").update(content).digest("hex")
   }
 
   async loadManifest(): Promise<IndexManifest> {
@@ -53,7 +72,7 @@ export class FileWatcher {
         try {
           await fs.copyFile(this._manifestPath, this._manifestPath + ".bak")
         } catch {
-          // no original file
+          // no original file to backup
         }
       }
       return createEmptyManifest()
@@ -67,30 +86,36 @@ export class FileWatcher {
     await fs.rename(tmpPath, this._manifestPath)
   }
 
-  async updateFileHashes(folderPath: string, files: string[], manifest: IndexManifest): Promise<void> {
-    for (const filePath of files) {
-      const relPath = path.relative(folderPath, filePath)
-      manifest.files[relPath] = await this.getFileHash(filePath)
-    }
-  }
+  private async loadAndMigrateManifest(): Promise<IndexManifest> {
+    const manifest = await this.loadManifest()
+    const files = manifest.files
+    const migrated: Record<string, string> = {}
 
-  async removeFileHashes(files: string[], manifest: IndexManifest): Promise<void> {
-    for (const relPath of files) {
-      delete manifest.files[relPath]
+    for (const [key, hash] of Object.entries(files)) {
+      if (path.isAbsolute(key)) {
+        migrated[key] = hash
+      } else {
+        const absPath = path.resolve(this._nikelDir, "..", "..", key)
+        try {
+          await fs.access(absPath)
+          migrated[absPath] = hash
+        } catch {
+          migrated[key] = hash
+        }
+      }
     }
-  }
 
-  async getFileHash(filePath: string): Promise<string> {
-    const content = await fs.readFile(filePath)
-    return crypto.createHash("md5").update(content).digest("hex")
+    manifest.files = migrated
+    return manifest
   }
 
   private get _manifestPath(): string {
     return path.join(this._nikelDir, ".nikel", "file-hashes.json")
   }
 
-  private async scanPdfFiles(folderPath: string): Promise<string[]> {
+  private async scanFiles(folderPath: string, extensions: string[]): Promise<string[]> {
     const files: string[] = []
+    const lowerExts = extensions.map((e) => e.toLowerCase())
 
     async function walk(dir: string): Promise<void> {
       const entries = await fs.readdir(dir, { withFileTypes: true })
@@ -98,8 +123,11 @@ export class FileWatcher {
         const fullPath = path.join(dir, entry.name)
         if (entry.isDirectory()) {
           await walk(fullPath)
-        } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".pdf")) {
-          files.push(fullPath)
+        } else if (entry.isFile()) {
+          const name = entry.name.toLowerCase()
+          if (lowerExts.some((ext) => name.endsWith(ext))) {
+            files.push(fullPath)
+          }
         }
       }
     }

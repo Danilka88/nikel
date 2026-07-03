@@ -24,6 +24,55 @@ export class NikelSettingTab extends PluginSettingTab {
     }
   }
 
+  private addFolderSetting(container: HTMLElement, name: string, desc: string, key: "pdfFolder" | "txtFolder" | "docxFolder"): void {
+    new Setting(container)
+      .setName(name)
+      .setDesc(desc)
+      .addText((text) =>
+        text
+          .setPlaceholder("/path/to/folder")
+          .setValue(this.plugin.settings[key])
+          .onChange(async (value) => {
+            this.plugin.settings[key] = value
+            await this.plugin.saveSettings()
+          }),
+      )
+      .addButton((btn) =>
+        btn.setButtonText("Обзор").onClick(() => {
+          const input = document.createElement("input")
+          input.type = "file"
+          input.setAttribute("webkitdirectory", "")
+          input.setAttribute("directory", "")
+          input.style.display = "none"
+
+          input.addEventListener("change", () => {
+            if (input.files && input.files.length > 0) {
+              const file = input.files[0] as any
+              const relPath: string = file.webkitRelativePath || ""
+              const fullPath: string = file.path || ""
+              let folderPath: string
+              if (relPath && fullPath) {
+                folderPath = fullPath.slice(0, -relPath.length - 1)
+              } else if (fullPath) {
+                folderPath = fullPath.replace(/\/[^/]+$/, "")
+              } else {
+                new Notice("Не удалось определить путь к папке")
+                document.body.removeChild(input)
+                return
+              }
+              this.plugin.settings[key] = folderPath
+              this.plugin.saveSettings()
+              this.display()
+            }
+            document.body.removeChild(input)
+          })
+
+          document.body.appendChild(input)
+          input.click()
+        }),
+      )
+  }
+
   display(): void {
     const { containerEl } = this
     containerEl.empty()
@@ -87,52 +136,9 @@ export class NikelSettingTab extends PluginSettingTab {
 
     containerEl.createEl("h3", { text: "Knowledge Graph" })
 
-    new Setting(containerEl)
-      .setName("PDF-папка")
-      .setDesc("Путь к папке с PDF-файлами для индексации")
-      .addText((text) =>
-        text
-          .setPlaceholder("/path/to/pdfs")
-          .setValue(this.plugin.settings.pdfFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.pdfFolder = value
-            await this.plugin.saveSettings()
-          }),
-      )
-      .addButton((btn) =>
-        btn.setButtonText("Обзор").onClick(() => {
-          const input = document.createElement("input")
-          input.type = "file"
-          input.setAttribute("webkitdirectory", "")
-          input.setAttribute("directory", "")
-          input.style.display = "none"
-
-          input.addEventListener("change", () => {
-            if (input.files && input.files.length > 0) {
-              const file = input.files[0] as any
-              const relPath: string = file.webkitRelativePath || ""
-              const fullPath: string = file.path || ""
-              let folderPath: string
-              if (relPath && fullPath) {
-                folderPath = fullPath.slice(0, -relPath.length - 1)
-              } else if (fullPath) {
-                folderPath = fullPath.replace(/\/[^/]+$/, "")
-              } else {
-                new Notice("Не удалось определить путь к папке")
-                document.body.removeChild(input)
-                return
-              }
-              this.plugin.settings.pdfFolder = folderPath
-              this.plugin.saveSettings()
-              this.display()
-            }
-            document.body.removeChild(input)
-          })
-
-          document.body.appendChild(input)
-          input.click()
-        }),
-      )
+    this.addFolderSetting(containerEl, "PDF-папка", "Путь к папке с PDF-файлами для индексации", "pdfFolder")
+    this.addFolderSetting(containerEl, "TXT-папка", "Путь к папке с TXT-файлами для индексации", "txtFolder")
+    this.addFolderSetting(containerEl, "DOCX-папка", "Путь к папке с DOCX-файлами для индексации", "docxFolder")
 
     new Setting(containerEl)
       .setName("Папка генерации")

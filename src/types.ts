@@ -10,6 +10,8 @@ export interface NikelSettings {
   model: string
   commands: NikelCommand[]
   pdfFolder: string
+  txtFolder: string
+  docxFolder: string
   nikelDir: string
   indexingMode: "vision" | "fast"
 }
@@ -225,6 +227,8 @@ export const DEFAULT_SETTINGS: NikelSettings = {
   ollamaUrl: "http://localhost:11434",
   model: "gemma4:e4b",
   pdfFolder: "",
+  txtFolder: "",
+  docxFolder: "",
   nikelDir: "nikel",
   indexingMode: "vision",
   commands: [

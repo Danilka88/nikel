@@ -47,7 +47,7 @@ describe("FileWatcher", () => {
 
     it("detects unchanged files", async () => {
       vi.mocked(fs.readFile)
-        .mockResolvedValueOnce(JSON.stringify(makeManifest({ "doc1.pdf": "mockhash", "doc2.pdf": "mockhash" })))
+        .mockResolvedValueOnce(JSON.stringify(makeManifest({ "/test-vault/pdfs/doc1.pdf": "mockhash", "/test-vault/pdfs/doc2.pdf": "mockhash" })))
       vi.mocked(fs.readdir).mockResolvedValueOnce([
         { name: "doc1.pdf", isFile: () => true, isDirectory: () => false } as any,
         { name: "doc2.pdf", isFile: () => true, isDirectory: () => false } as any,
@@ -60,25 +60,28 @@ describe("FileWatcher", () => {
     })
 
     it("detects deleted files", async () => {
-      vi.mocked(fs.readFile).mockResolvedValueOnce(JSON.stringify(makeManifest({ "old.pdf": "hash123" })))
+      vi.mocked(fs.readFile).mockResolvedValueOnce(JSON.stringify(makeManifest({ "/test-vault/pdfs/old.pdf": "hash123" })))
       vi.mocked(fs.readdir).mockResolvedValueOnce([])
 
       const result = await watcher.scan(pdfDir)
 
-      expect(result.deletedFiles).toEqual(["old.pdf"])
+      expect(result.deletedFiles).toEqual(["/test-vault/pdfs/old.pdf"])
     })
 
-    it("filters out non-PDF files", async () => {
+    it("filters by extensions parameter", async () => {
       vi.mocked(fs.readFile).mockRejectedValueOnce(new Error("no file"))
       vi.mocked(fs.readdir).mockResolvedValueOnce([
         { name: "readme.txt", isFile: () => true, isDirectory: () => false } as any,
         { name: "paper.pdf", isFile: () => true, isDirectory: () => false } as any,
+        { name: "notes.docx", isFile: () => true, isDirectory: () => false } as any,
       ])
 
-      const result = await watcher.scan(pdfDir)
+      const result = await watcher.scan(pdfDir, [".txt", ".docx"])
 
-      expect(result.newFiles).toHaveLength(1)
-      expect(result.newFiles[0]).toContain("paper.pdf")
+      expect(result.newFiles).toHaveLength(2)
+      expect(result.newFiles).toEqual(
+        expect.arrayContaining([expect.stringContaining("readme.txt"), expect.stringContaining("notes.docx")]),
+      )
     })
   })
 

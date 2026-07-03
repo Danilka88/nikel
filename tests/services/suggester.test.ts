@@ -7,6 +7,8 @@ function createMockPlugin(commands = DEFAULT_SETTINGS.commands) {
     ollamaUrl: "http://localhost:11434",
     model: "gemma4:e4b",
     pdfFolder: "",
+    txtFolder: "",
+    docxFolder: "",
     nikelDir: "nikel",
     indexingMode: "vision",
     commands,
