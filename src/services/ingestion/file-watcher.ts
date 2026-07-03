@@ -24,7 +24,13 @@ export class FileWatcher {
     for (const filePath of currentFiles) {
       const key = path.resolve(filePath)
       currentKeys.add(key)
-      const hash = await this.getFileHash(filePath)
+
+      let hash: string
+      try {
+        hash = await this.getFileHash(filePath)
+      } catch {
+        continue
+      }
 
       const prevHash = previousFiles[key]
       if (prevHash === undefined) {

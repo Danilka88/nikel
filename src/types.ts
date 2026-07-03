@@ -36,7 +36,7 @@ export interface OllamaClient {
   listModels(url: string): Promise<string[]>
 }
 
-export interface ChatMessage {
+interface ChatMessage {
   role: "system" | "user" | "assistant"
   content: string
   images?: string[]

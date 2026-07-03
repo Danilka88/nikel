@@ -130,7 +130,11 @@ export class EntityExtractor {
           name: String(obj.name || ""),
           type: type as EntityType,
           aliases: extractStringArray(obj.aliases),
-          properties: (obj.properties && typeof obj.properties === "object") ? obj.properties as Record<string, string> : {},
+          properties: (obj.properties && typeof obj.properties === "object")
+            ? Object.fromEntries(
+                Object.entries(obj.properties as Record<string, unknown>).map(([k, v]) => [k, String(v ?? "")]),
+              )
+            : {},
           tags: extractStringArray(obj.tags),
           source: sourcePath,
           sourcePage: typeof obj.sourcePage === "number" ? obj.sourcePage : undefined,
@@ -149,9 +153,13 @@ export class EntityExtractor {
         const type = obj.type as string
         if (!VALID_RELATION_TYPES.has(type as RelationType)) return []
 
+        const from = String(obj.from || "")
+        const to = String(obj.to || "")
+        if (!from || !to) return []
+
         return {
-          from: String(obj.from || ""),
-          to: String(obj.to || ""),
+          from,
+          to,
           type: type as RelationType,
           context: typeof obj.context === "string" ? obj.context : undefined,
         }

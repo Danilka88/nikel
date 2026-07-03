@@ -254,6 +254,16 @@ export class KnowledgeGraph {
     return { entities: result, relations }
   }
 
+  removeBySource(sourcePath: string): void {
+    const idsToRemove = new Set(
+      this._manifest.entities.filter((e) => e.source === sourcePath).map((e) => e.id),
+    )
+    this._manifest.entities = this._manifest.entities.filter((e) => e.source !== sourcePath)
+    this._manifest.relations = this._manifest.relations.filter(
+      (r) => !idsToRemove.has(r.from) && !idsToRemove.has(r.to),
+    )
+  }
+
   getStats(): { entityCount: number; relationCount: number; fileCount: number } {
     const uniqueFiles = new Set(this._manifest.entities.map((e) => e.source))
     return {

@@ -52,6 +52,10 @@ const SOURCE_FOLDER_MAP: Record<string, NonNullable<Entity["sourceType"]>> = {
   "диссертация": "dissertation",
 }
 
+export function toErrorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
 export function detectSourceType(relPath: string): Entity["sourceType"] {
   const parts = relPath.split("/")
   for (const part of parts) {

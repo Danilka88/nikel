@@ -18,10 +18,18 @@ export class DefaultOllamaClient implements OllamaClient {
   async generate(opts: GenerateOptions): Promise<string> {
     const url = this.normalizeUrl(opts.url, "/api/generate")
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
-    const timeout = opts.signal ? null : timeoutSignal(timeoutMs)
+
+    let signal: AbortSignal | undefined
+    let timeout: { signal: AbortSignal; clear: () => void } | null = null
+
+    if (opts.signal) {
+      signal = opts.signal
+    } else {
+      timeout = timeoutSignal(timeoutMs)
+      signal = timeout.signal
+    }
 
     try {
-      const signal = opts.signal ?? timeout!.signal
       return await this.fetchWithFallback({
         url,
         signal,
@@ -37,10 +45,18 @@ export class DefaultOllamaClient implements OllamaClient {
   async chat(opts: ChatOptions): Promise<string> {
     const url = this.normalizeUrl(opts.url, "/api/chat")
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
-    const timeout = opts.signal ? null : timeoutSignal(timeoutMs)
+
+    let signal: AbortSignal | undefined
+    let timeout: { signal: AbortSignal; clear: () => void } | null = null
+
+    if (opts.signal) {
+      signal = opts.signal
+    } else {
+      timeout = timeoutSignal(timeoutMs)
+      signal = timeout.signal
+    }
 
     try {
-      const signal = opts.signal ?? timeout!.signal
       return await this.fetchWithFallback({
         url,
         signal,

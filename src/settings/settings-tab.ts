@@ -5,6 +5,7 @@ import {
   Notice,
 } from "obsidian"
 import type NikelPlugin from "../main"
+import { toErrorMessage } from "../utils"
 
 export class NikelSettingTab extends PluginSettingTab {
   plugin: NikelPlugin
@@ -119,7 +120,7 @@ export class NikelSettingTab extends PluginSettingTab {
             this.display()
             new Notice("Список моделей обновлён")
           } catch (e) {
-            new Notice(`Ошибка: ${(e as Error).message}`)
+            new Notice(`Ошибка: ${toErrorMessage(e)}`)
           }
         }),
       )
@@ -134,7 +135,7 @@ export class NikelSettingTab extends PluginSettingTab {
             const names = models.length > 0 ? models.join(", ") : "не найдены"
             new Notice(`✅ Подключено. Модели: ${names}`)
           } catch (e) {
-            new Notice(`❌ Ошибка: ${(e as Error).message}`)
+            new Notice(`❌ Ошибка: ${toErrorMessage(e)}`)
           }
         }),
       )

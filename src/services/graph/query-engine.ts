@@ -84,7 +84,9 @@ export class QueryEngine {
       const raw = await this._ollama.chat(chatOpts)
       const json = raw.match(/\[[\s\S]*?\]/)
       if (json) {
-        return JSON.parse(json[0]) as string[]
+        const parsed = JSON.parse(json[0])
+        if (Array.isArray(parsed)) return parsed.map(String)
+        return []
       }
     } catch {
       return []

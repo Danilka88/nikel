@@ -52,7 +52,8 @@ export class PdfExtractor {
     try {
       const pageCount = await this._renderer.getPageCount()
 
-      for (let i = 0; i < pageCount; i += this._options.parallelPages) {
+      const step = Math.max(1, this._options.parallelPages)
+      for (let i = 0; i < pageCount; i += step) {
         const batch: Promise<string>[] = []
         const end = Math.min(i + this._options.parallelPages, pageCount)
         for (let p = i; p < end; p++) {

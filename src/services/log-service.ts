@@ -108,6 +108,9 @@ export class FileLogger implements Logger {
   private async _flushNow(): Promise<void> {
     if (this._flushPromise) {
       await this._flushPromise
+      if (this._pending.length > 0) {
+        return this._flushNow()
+      }
       return
     }
 
@@ -129,5 +132,8 @@ export class FileLogger implements Logger {
 
     await this._flushPromise
     this._flushPromise = null
+    if (this._pending.length > 0) {
+      await this._flushNow()
+    }
   }
 }

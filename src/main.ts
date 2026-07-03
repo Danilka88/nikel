@@ -14,7 +14,7 @@ import {
   PdfExtractResult,
   TriggerMatch,
 } from "./types"
-import { detectSourceType, resolvePdfMode } from "./utils"
+import { detectSourceType, resolvePdfMode, toErrorMessage } from "./utils"
 import { NikelSuggester } from "./suggester"
 import { DefaultOllamaClient } from "./services/ollama"
 import { findTrigger, buildPrompt } from "./services/trigger-parser"
@@ -209,6 +209,10 @@ export default class NikelPlugin extends Plugin {
         for (const filePath of allDeleted) {
           this.documentStore.removeBySource(filePath)
         }
+      } else {
+        for (const filePath of allDeleted) {
+          this.graph.removeBySource(filePath)
+        }
       }
       const processedFiles = [...allNew, ...allChanged]
       const totalFiles = processedFiles.length
@@ -280,8 +284,8 @@ export default class NikelPlugin extends Plugin {
           }
           successfullyProcessed.push(filePath)
         } catch (fileErr) {
-          await this.logger.error(`Failed to process ${fileName}: ${(fileErr as Error).message}`, { file: fileName })
-          new Notice(`⚠️ Ошибка при обработке ${fileName}: ${(fileErr as Error).message}`)
+          await this.logger.error(`Failed to process ${fileName}: ${toErrorMessage(fileErr)}`, { file: fileName })
+          new Notice(`⚠️ Ошибка при обработке ${fileName}: ${toErrorMessage(fileErr)}`)
         }
       }
 
@@ -321,8 +325,8 @@ export default class NikelPlugin extends Plugin {
             try {
               await this.app.vault.create(vaultRelPath, doc.content)
               generatedCount++
-            } catch {
-              // path may already exist from a previous run
+            } catch (createErr) {
+              await this.logger.warn(`Failed to create note for ${entity.name}`, { error: (createErr instanceof Error ? createErr.message : String(createErr)) })
             }
           }
         }
@@ -364,7 +368,7 @@ export default class NikelPlugin extends Plugin {
       }
     } catch (e) {
       modal.close()
-      const msg = (e as Error).message
+      const msg = toErrorMessage(e)
       await this.logger.error(`Indexing failed: ${msg}`)
       new Notice(`❌ Ошибка индексации: ${msg}`)
     }
@@ -430,7 +434,7 @@ export default class NikelPlugin extends Plugin {
         await this.app.vault.create(vaultRelPath, mdContent)
       }
     } catch (e) {
-      // fallback: write directly via fs
+      await this.logger.warn(`vault write failed, falling back to fs`, { error: (e instanceof Error ? e.message : String(e)) })
       await fs.writeFile(exportPath, mdContent, "utf-8")
     }
     return vaultRelPath
@@ -463,7 +467,8 @@ export default class NikelPlugin extends Plugin {
       let answerFile: TFile | null = null
       try {
         answerFile = await this.app.vault.create(vaultRelPath, doc.content)
-      } catch {
+      } catch (createErr) {
+        await this.logger.warn(`vault.create failed for answer doc, trying modify`, { error: (createErr instanceof Error ? createErr.message : String(createErr)) })
         const existing = this.app.vault.getAbstractFileByPath(vaultRelPath)
         if (existing instanceof TFile) {
           await this.app.vault.modify(existing, doc.content)
@@ -490,8 +495,8 @@ export default class NikelPlugin extends Plugin {
         new Notice("✅ Ответ вставлен")
       }
     } catch (e) {
-      await this.logger.error(`processWithGraph failed: ${(e as Error).message}`)
-      new Notice(`❌ Ошибка: ${(e as Error).message}`)
+      await this.logger.error(`processWithGraph failed: ${toErrorMessage(e)}`)
+      new Notice(`❌ Ошибка: ${toErrorMessage(e)}`)
     }
   }
 
@@ -542,8 +547,8 @@ export default class NikelPlugin extends Plugin {
       )
       new Notice("✅ Ответ вставлен (прямой поиск)")
     } catch (e) {
-      await this.logger.error(`processWithDirectSearch failed: ${(e as Error).message}`)
-      new Notice(`❌ Ошибка: ${(e as Error).message}`)
+      await this.logger.error(`processWithDirectSearch failed: ${toErrorMessage(e)}`)
+      new Notice(`❌ Ошибка: ${toErrorMessage(e)}`)
     }
   }
 
@@ -579,8 +584,8 @@ export default class NikelPlugin extends Plugin {
 
       new Notice("✅ Ответ вставлен")
     } catch (e) {
-      await this.logger.error(`processDirect failed: ${(e as Error).message}`)
-      new Notice(`❌ Ошибка Ollama: ${(e as Error).message}`)
+      await this.logger.error(`processDirect failed: ${toErrorMessage(e)}`)
+      new Notice(`❌ Ошибка Ollama: ${toErrorMessage(e)}`)
     }
   }
 }
