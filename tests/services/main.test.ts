@@ -169,6 +169,68 @@ describe("NikelPlugin", () => {
     expect(replaceRange.mock.calls[0][1].line).toBe(1)
   })
 
+  describe("graph mode", () => {
+    beforeEach(() => {
+      plugin.settings.pdfFolder = "/some/pdf/folder"
+      plugin.graph = {
+        load: vi.fn().mockResolvedValue(undefined),
+        entities: [{ id: "1", type: "material", name: "Lithium", aliases: ["Li"] }],
+      } as any
+      plugin.queryEngine = {
+        answerQuestion: vi.fn().mockResolvedValue({
+          answer: "Lithium is used in batteries.",
+          contextMd: "- [[materials/Lithium.md|Lithium]]\n- [[materials/Cobalt.md|Cobalt]]",
+          linkedDocs: ["materials/Lithium.md", "materials/Cobalt.md"],
+        }),
+      } as any
+      plugin.mdGenerator = {
+        generateAnswerDoc: vi.fn().mockReturnValue({
+          path: "nikel/_answers/2026-07-03-143000.md",
+          content: "# Answer\n\nLithium is key.\n",
+        }),
+      } as any
+      plugin.app.vault = {
+        adapter: { basePath: "/vault" },
+        create: vi.fn().mockResolvedValue({}),
+        createFolder: vi.fn().mockResolvedValue(undefined),
+        getAbstractFileByPath: vi.fn().mockReturnValue(null),
+      } as any
+    })
+
+    it("calls processWithGraph when graph has entities", async () => {
+      const replaceRange = vi.fn()
+      const editor = {
+        getLine: vi.fn((i: number) => i === 0 ? "@nikel_s lithium battery" : ""),
+        lineCount: vi.fn(() => 1),
+        getCursor: vi.fn(() => ({ line: 0, ch: 0 })),
+        replaceRange,
+      }
+      mockActiveView(editor)
+
+      await plugin.processNikelTask()
+
+      expect(plugin.queryEngine.answerQuestion).toHaveBeenCalledWith("lithium battery")
+      expect(replaceRange).toHaveBeenCalled()
+      const [text, from] = replaceRange.mock.calls[0]
+      expect(text).toContain("Ответ сохранён")
+      expect(text).toContain("nikel/_answers/2026-07-03-143000.md")
+      expect(from.line).toBe(1)
+    })
+
+    it("shows notice on graph mode query error", async () => {
+      plugin.queryEngine.answerQuestion = vi.fn().mockRejectedValue(
+        new Error("Graph search failed"),
+      )
+
+      const editor = createMockEditor(["@nikel_s lithium"], 0)
+      mockActiveView(editor)
+
+      await plugin.processNikelTask()
+
+      expect(Notice.lastMessage).toContain("Graph search failed")
+    })
+  })
+
   describe("direct mode", () => {
     beforeEach(() => {
       plugin.settings.indexingMode = "direct"

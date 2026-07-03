@@ -6,11 +6,13 @@ import {
   Notice,
   addIcon,
   TFile,
+  Editor,
 } from "obsidian"
 import {
   NikelSettings,
   DEFAULT_SETTINGS,
   PdfExtractResult,
+  TriggerMatch,
 } from "./types"
 import { detectSourceType, resolvePdfMode } from "./utils"
 import { NikelSuggester } from "./suggester"
@@ -419,7 +421,7 @@ export default class NikelPlugin extends Plugin {
   private async processWithGraph(
     input: string,
     triggerLine: number,
-    editor: any,
+    editor: Editor,
   ): Promise<void> {
     await this.logger.info("processWithGraph", { input: input.slice(0, 100) })
     new Notice("🔍 Ищу в базе знаний...")
@@ -478,7 +480,7 @@ export default class NikelPlugin extends Plugin {
   private async processWithDirectSearch(
     input: string,
     triggerLine: number,
-    editor: any,
+    editor: Editor,
   ): Promise<void> {
     await this.logger.info("processWithDirectSearch", { input: input.slice(0, 100) })
     new Notice("🔍 Ищу в текстовом индексе...")
@@ -532,7 +534,7 @@ export default class NikelPlugin extends Plugin {
     await this.logger.info("Log cleared manually")
   }
 
-  private async processDirect(match: any, editor: any): Promise<void> {
+  private async processDirect(match: TriggerMatch, editor: Editor): Promise<void> {
     const prompt = buildPrompt(match.command, match.input)
     await this.logger.info("processDirect", { trigger: match.command.trigger, input: match.input.slice(0, 100) })
     new Notice(`🤖 ${match.command.trigger}: отправляю запрос...`)

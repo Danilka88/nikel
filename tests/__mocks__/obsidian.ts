@@ -66,6 +66,11 @@ export class Notice {
 
 export function addIcon(_id: string, _svg: string): void {}
 
+export class TFile {
+  path: string
+  constructor(path?: string) { this.path = path ?? "" }
+}
+
 export class EditorSuggest<T> {
   app: any
   context: any

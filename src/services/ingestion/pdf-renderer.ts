@@ -24,8 +24,11 @@ async function getPdfLib(): Promise<typeof import("pdfjs-dist")> {
   return pdfjsLib
 }
 
+type PDFDoc = import("pdfjs-dist").PDFDocumentProxy
+type PDFPage = import("pdfjs-dist").PDFPageProxy
+
 export class DefaultPdfRenderer implements PdfPageRenderer {
-  private _doc: any = null
+  private _doc: PDFDoc | null = null
 
   async load(data: Uint8Array): Promise<void> {
     const pdfjs = await getPdfLib()
@@ -75,7 +78,10 @@ export class DefaultPdfRenderer implements PdfPageRenderer {
     if (!this._doc) throw new Error("PDF document not loaded")
     const page = await this._doc.getPage(pageNum + 1)
     const content = await page.getTextContent()
-    return content.items.map((item: any) => item.str).join(" ")
+    return content.items
+      .filter((item) => "str" in item)
+      .map((item) => (item as { str: string }).str)
+      .join(" ")
   }
 
   async close(): Promise<void> {

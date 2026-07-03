@@ -127,6 +127,17 @@ describe("DefaultOllamaClient", () => {
       ).rejects.toThrow("Превышен таймаут ожидания ответа от Ollama")
     })
 
+    it("throws on malformed response — no response field", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        mockResponse({ json: { error: "internal error" } }),
+      )
+      client = new DefaultOllamaClient(fetch)
+
+      await expect(
+        client.generate({ prompt: "p", model: "m", url: "http://localhost:11434" }),
+      ).rejects.toThrow("Некорректный ответ Ollama: internal error")
+    })
+
     it("returns human-readable error for non-localhost TypeError", async () => {
       const fetch = vi.fn().mockRejectedValue(new TypeError("fetch failed"))
       client = new DefaultOllamaClient(fetch)
@@ -134,6 +145,96 @@ describe("DefaultOllamaClient", () => {
       await expect(
         client.generate({ prompt: "p", model: "m", url: "http://192.168.1.100:11434" }),
       ).rejects.toThrow("Не удалось выполнить запрос к Ollama по адресу")
+    })
+  })
+
+  describe("chat", () => {
+    it("returns content from a successful chat API call", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        mockResponse({ json: { message: { role: "assistant", content: "Привет!" } } }),
+      )
+      client = new DefaultOllamaClient(fetch)
+
+      const result = await client.chat({
+        model: "gemma4:e4b",
+        url: "http://localhost:11434",
+        messages: [{ role: "user", content: "скажи привет" }],
+      })
+
+      expect(result).toBe("Привет!")
+      expect(fetch).toHaveBeenCalledWith(
+        "http://localhost:11434/api/chat",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"role":"user"'),
+        }),
+      )
+    })
+
+    it("sends images in the request when provided", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        mockResponse({ json: { message: { role: "assistant", content: "Вижу изображение" } } }),
+      )
+      client = new DefaultOllamaClient(fetch)
+
+      const result = await client.chat({
+        model: "gemma4:e4b",
+        url: "http://localhost:11434",
+        messages: [{ role: "user", content: "что на картинке?", images: ["base64data=="] }],
+      })
+
+      expect(result).toBe("Вижу изображение")
+      const body = JSON.parse(fetch.mock.calls[0][1].body)
+      expect(body.messages[0].images).toEqual(["base64data=="])
+    })
+
+    it("throws on HTTP error", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        mockResponse({ ok: false, status: 404, text: "model not found" }),
+      )
+      client = new DefaultOllamaClient(fetch)
+
+      await expect(
+        client.chat({ model: "m", url: "http://localhost:11434", messages: [{ role: "user", content: "hi" }] }),
+      ).rejects.toThrow("HTTP 404: model not found")
+    })
+
+    it("throws on malformed response — no message field", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        mockResponse({ json: { error: "model not available" } }),
+      )
+      client = new DefaultOllamaClient(fetch)
+
+      await expect(
+        client.chat({ model: "m", url: "http://localhost:11434", messages: [{ role: "user", content: "hi" }] }),
+      ).rejects.toThrow("Некорректный ответ Ollama: model not available")
+    })
+
+    it("throws on malformed response — message without content", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        mockResponse({ json: { message: { role: "assistant" } } }),
+      )
+      client = new DefaultOllamaClient(fetch)
+
+      await expect(
+        client.chat({ model: "m", url: "http://localhost:11434", messages: [{ role: "user", content: "hi" }] }),
+      ).rejects.toThrow("Некорректный ответ Ollama: неизвестный формат ответа Ollama")
+    })
+
+    it("retries on TypeError and succeeds on second attempt", async () => {
+      const fetch = vi.fn()
+        .mockRejectedValueOnce(new TypeError("fetch failed"))
+        .mockResolvedValueOnce(mockResponse({ json: { message: { role: "assistant", content: "ok" } } }))
+      client = new DefaultOllamaClient(fetch)
+
+      const result = await client.chat({
+        model: "m",
+        url: "http://localhost:11434",
+        messages: [{ role: "user", content: "hi" }],
+      })
+
+      expect(result).toBe("ok")
+      expect(fetch).toHaveBeenCalledTimes(2)
     })
   })
 
