@@ -27,6 +27,7 @@ export interface GenerateOptions {
   model: string
   url: string
   signal?: AbortSignal
+  timeoutMs?: number
 }
 
 export interface OllamaClient {
@@ -46,6 +47,7 @@ export interface ChatOptions {
   model: string
   url: string
   signal?: AbortSignal
+  timeoutMs?: number
 }
 
 // ===== Knowledge Graph — типы сущностей =====

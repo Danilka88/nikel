@@ -6,6 +6,7 @@ const AGGREGATION_PROMPT = `Ты получил markdown нескольких с
 
 const MAX_RETRIES = 2
 const TEXT_THRESHOLD = 200
+const BASE_VISION_TIMEOUT_MS = 90_000
 
 export type IndexingMode = "vision" | "fast"
 
@@ -77,6 +78,7 @@ export class PdfExtractor {
     let lastError: Error | undefined
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const timeoutMs = BASE_VISION_TIMEOUT_MS * (attempt + 1)
       try {
         const blob = await this._renderer.renderToBlob(
           pageNum,
@@ -88,6 +90,7 @@ export class PdfExtractor {
         const chatOpts: ChatOptions = {
           model: this._options.visionModel,
           url: this._options.ollamaUrl,
+          timeoutMs,
           messages: [
             {
               role: "user",

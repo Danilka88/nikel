@@ -124,7 +124,7 @@ describe("DefaultOllamaClient", () => {
 
       await expect(
         client.generate({ prompt: "p", model: "m", url: "http://localhost:11434" }),
-      ).rejects.toThrow("Превышен таймаут ожидания ответа от Ollama (120 сек)")
+      ).rejects.toThrow("Превышен таймаут ожидания ответа от Ollama")
     })
 
     it("returns human-readable error for non-localhost TypeError", async () => {

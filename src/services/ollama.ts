@@ -23,7 +23,8 @@ export class DefaultOllamaClient implements OllamaClient {
 
   async generate(opts: GenerateOptions): Promise<string> {
     const url = this.normalizeUrl(opts.url, "/api/generate")
-    const timeout = opts.signal ? null : timeoutSignal(DEFAULT_TIMEOUT_MS)
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    const timeout = opts.signal ? null : timeoutSignal(timeoutMs)
 
     try {
       const signal = opts.signal ?? timeout!.signal
@@ -41,7 +42,8 @@ export class DefaultOllamaClient implements OllamaClient {
 
   async chat(opts: ChatOptions): Promise<string> {
     const url = this.normalizeUrl(opts.url, "/api/chat")
-    const timeout = opts.signal ? null : timeoutSignal(DEFAULT_TIMEOUT_MS)
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    const timeout = opts.signal ? null : timeoutSignal(timeoutMs)
 
     try {
       const signal = opts.signal ?? timeout!.signal
@@ -205,7 +207,7 @@ function isLocalhostUrl(url: string): boolean {
 
 function enhanceError(err: unknown, url: string): Error {
   if (err instanceof DOMException && err.name === "AbortError") {
-    return new Error("Превышен таймаут ожидания ответа от Ollama (120 сек)")
+    return new Error("Превышен таймаут ожидания ответа от Ollama. Возможно модель перегружена — попробуйте увеличить таймаут в настройках")
   }
 
   const rawMessage = err instanceof Error ? err.message : String(err)
