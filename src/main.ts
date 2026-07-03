@@ -25,6 +25,7 @@ import { EntityExtractor } from "./services/ingestion/entity-extractor"
 import { PdfExtractor } from "./services/ingestion/pdf-extractor"
 import { DefaultPdfRenderer } from "./services/ingestion/pdf-renderer"
 import { TextExtractor } from "./services/ingestion/text-extractor"
+import { DocumentStore } from "./services/ingestion/document-store"
 import { FileLogger } from "./services/log-service"
 import { MdGenerator } from "./services/generation/md-generator"
 import { IndexGenerator } from "./services/generation/index-generator"
@@ -46,6 +47,7 @@ export default class NikelPlugin extends Plugin {
   mdGenerator!: MdGenerator
   indexGenerator!: IndexGenerator
   canvasGenerator!: CanvasGenerator
+  documentStore!: DocumentStore
 
   async onload(): Promise<void> {
     await this.loadSettings()
@@ -104,6 +106,7 @@ export default class NikelPlugin extends Plugin {
     this.mdGenerator = new MdGenerator(nikelDir)
     this.indexGenerator = new IndexGenerator(nikelDir)
     this.canvasGenerator = new CanvasGenerator(nikelDir, this.settings.nikelDir)
+    this.documentStore = new DocumentStore(nikelDir)
 
     this.pdfExtractor = new PdfExtractor(
       this.ollama,
@@ -114,7 +117,7 @@ export default class NikelPlugin extends Plugin {
         parallelPages: 2,
         visionModel: "gemma4:e4b",
         ollamaUrl: this.settings.ollamaUrl,
-        indexingMode: this.settings.indexingMode,
+        indexingMode: this.settings.indexingMode === "direct" ? "fast" : this.settings.indexingMode,
       },
       this.logger,
     )
@@ -150,7 +153,11 @@ export default class NikelPlugin extends Plugin {
 
     try {
       modal.setProgress(0, 1, "Сканирую папки...")
-      await this.graph.load()
+      if (this.settings.indexingMode === "direct") {
+        await this.documentStore.load()
+      } else {
+        await this.graph.load()
+      }
 
       const allNew: string[] = []
       const allChanged: string[] = []
@@ -174,6 +181,12 @@ export default class NikelPlugin extends Plugin {
 
       await this.logger.info(`Found ${totalChanges} changes: ${allNew.length} new, ${allChanged.length} changed, ${allDeleted.length} deleted`)
 
+      if (this.settings.indexingMode === "direct") {
+        for (const filePath of allDeleted) {
+          this.documentStore.removeBySource(filePath)
+        }
+      }
+
       const processedFiles = [...allNew, ...allChanged]
       const totalFiles = processedFiles.length
 
@@ -192,7 +205,8 @@ export default class NikelPlugin extends Plugin {
           let extractResult: import("./types").PdfExtractResult
 
           if (ext === ".pdf") {
-            extractResult = await this.pdfExtractor.extractPdf(data, this.settings.indexingMode)
+            const pdfMode = this.settings.indexingMode === "direct" ? "fast" : this.settings.indexingMode
+            extractResult = await this.pdfExtractor.extractPdf(data, pdfMode)
             await this.logger.info(`PDF extracted: ${extractResult.pageCount} pages`, { file: fileName, pages: String(extractResult.pageCount) })
           } else if (ext === ".txt") {
             extractResult = await this.textExtractor.extractTxt(data)
@@ -205,29 +219,39 @@ export default class NikelPlugin extends Plugin {
             continue
           }
 
-          const result = await this.entityExtractor.extract(
-            extractResult.markdown,
-            filePath,
-          )
-
-          const relPath = path.relative(folders[0].path, filePath)
-          const sourceType = detectSourceType(relPath)
-          for (const entity of result.entities) {
-            entity.sourceType = sourceType
-          }
-
-          await this.logger.info(`Entities extracted: ${result.entities.length} entities, ${result.relations.length} relations`, { file: fileName, entities: String(result.entities.length), relations: String(result.relations.length) })
-
-          if (result.entities.length > 0) {
-            this.graph.mergeIndex({
-              version: 1,
-              lastIndexed: new Date().toISOString(),
-              files: {},
-              entities: result.entities,
-              relations: result.relations,
-            })
+          if (this.settings.indexingMode === "direct") {
+            if (ext === ".pdf") {
+              for (let p = 0; p < extractResult.pages.length; p++) {
+                this.documentStore.addDocument(filePath, extractResult.pages[p], p + 1)
+              }
+            } else {
+              this.documentStore.addDocument(filePath, extractResult.markdown)
+            }
           } else {
-            await this.logger.warn(`No entities extracted from ${fileName}`)
+            const result = await this.entityExtractor.extract(
+              extractResult.markdown,
+              filePath,
+            )
+
+            const relPath = path.relative(folders[0].path, filePath)
+            const sourceType = detectSourceType(relPath)
+            for (const entity of result.entities) {
+              entity.sourceType = sourceType
+            }
+
+            await this.logger.info(`Entities extracted: ${result.entities.length} entities, ${result.relations.length} relations`, { file: fileName, entities: String(result.entities.length), relations: String(result.relations.length) })
+
+            if (result.entities.length > 0) {
+              this.graph.mergeIndex({
+                version: 1,
+                lastIndexed: new Date().toISOString(),
+                files: {},
+                entities: result.entities,
+                relations: result.relations,
+              })
+            } else {
+              await this.logger.warn(`No entities extracted from ${fileName}`)
+            }
           }
         } catch (fileErr) {
           await this.logger.error(`Failed to process ${fileName}: ${(fileErr as Error).message}`, { file: fileName })
@@ -235,64 +259,73 @@ export default class NikelPlugin extends Plugin {
         }
       }
 
-      await this.fileWatcher.updateFileHashes(processedFiles, this.graph.manifest)
-      await this.fileWatcher.removeFileHashes(allDeleted, this.graph.manifest)
+      if (this.settings.indexingMode === "direct") {
+        await this.documentStore.save()
+        modal.setProgress(100, 100, "Сохранение завершено")
+        modal.close()
+        const ds = this.documentStore.stats
+        await this.logger.info(`Direct indexing complete: ${ds.totalChunks} chunks from ${ds.totalSources} sources`)
+        new Notice(`✅ Индексация завершена. ${ds.totalChunks} текстовых блоков из ${ds.totalSources} файлов.`)
+      } else {
+        await this.fileWatcher.updateFileHashes(processedFiles, this.graph.manifest)
+        await this.fileWatcher.removeFileHashes(allDeleted, this.graph.manifest)
 
-      this.graph.manifest.lastIndexed = new Date().toISOString()
-      await this.graph.save()
+        this.graph.manifest.lastIndexed = new Date().toISOString()
+        await this.graph.save()
 
-      const vaultBase = this.vaultBasePath
-      let generatedCount = 0
-      for (const entity of this.graph.entities) {
-        const doc = this.mdGenerator.generateDoc(entity, this.graph.relations)
-        const vaultRelPath = doc.path.startsWith(vaultBase)
-          ? doc.path.slice(vaultBase.length + 1)
-          : `${this.settings.nikelDir}/_answers/${doc.path.split("/").pop()}`
-        const exists = this.app.vault.getAbstractFileByPath(vaultRelPath)
-        if (!exists) {
-          try {
-            await this.app.vault.create(vaultRelPath, doc.content)
-            generatedCount++
-          } catch {
-            // path may already exist from a previous run
+        const vaultBase = this.vaultBasePath
+        let generatedCount = 0
+        for (const entity of this.graph.entities) {
+          const doc = this.mdGenerator.generateDoc(entity, this.graph.relations)
+          const vaultRelPath = doc.path.startsWith(vaultBase)
+            ? doc.path.slice(vaultBase.length + 1)
+            : `${this.settings.nikelDir}/_answers/${doc.path.split("/").pop()}`
+          const exists = this.app.vault.getAbstractFileByPath(vaultRelPath)
+          if (!exists) {
+            try {
+              await this.app.vault.create(vaultRelPath, doc.content)
+              generatedCount++
+            } catch {
+              // path may already exist from a previous run
+            }
           }
         }
+
+        const indexContent = this.indexGenerator.generateIndex(this.graph.manifest)
+        const indexRelPath = `${this.settings.nikelDir}/_index.md`
+        const existingIndex = this.app.vault.getAbstractFileByPath(indexRelPath)
+        if (existingIndex instanceof TFile) {
+          await this.app.vault.modify(existingIndex, indexContent)
+        } else {
+          await this.app.vault.create(indexRelPath, indexContent)
+        }
+
+        const graphContent = this.indexGenerator.generateGraphMermaid(this.graph.manifest)
+        const graphRelPath = `${this.settings.nikelDir}/_graph.md`
+        const existingGraph = this.app.vault.getAbstractFileByPath(graphRelPath)
+        if (existingGraph instanceof TFile) {
+          await this.app.vault.modify(existingGraph, graphContent)
+        } else {
+          await this.app.vault.create(graphRelPath, graphContent)
+        }
+
+        const overviewCanvas = this.canvasGenerator.generateGlobalOverview(this.graph)
+        const canvasRelPath = `${this.settings.nikelDir}/canvas/обзор-базы-знаний.canvas`
+        const existingCanvas = this.app.vault.getAbstractFileByPath(canvasRelPath)
+        const canvasContent = JSON.stringify({ nodes: overviewCanvas.nodes, edges: overviewCanvas.edges }, null, 2)
+        if (existingCanvas instanceof TFile) {
+          await this.app.vault.modify(existingCanvas, canvasContent)
+        } else {
+          await this.app.vault.create(canvasRelPath, canvasContent)
+        }
+
+        modal.setProgress(100, 100, "Сохранение завершено")
+        modal.close()
+
+        const stats = this.graph.getStats()
+        await this.logger.info(`Indexing complete: ${stats.entityCount} entities, ${stats.relationCount} relations, ${generatedCount} notes created`)
+        new Notice(`✅ Индексация завершена. Сущностей: ${stats.entityCount}, связей: ${stats.relationCount}. Создано заметок: ${generatedCount}`)
       }
-
-      const indexContent = this.indexGenerator.generateIndex(this.graph.manifest)
-      const indexRelPath = `${this.settings.nikelDir}/_index.md`
-      const existingIndex = this.app.vault.getAbstractFileByPath(indexRelPath)
-      if (existingIndex instanceof TFile) {
-        await this.app.vault.modify(existingIndex, indexContent)
-      } else {
-        await this.app.vault.create(indexRelPath, indexContent)
-      }
-
-      const graphContent = this.indexGenerator.generateGraphMermaid(this.graph.manifest)
-      const graphRelPath = `${this.settings.nikelDir}/_graph.md`
-      const existingGraph = this.app.vault.getAbstractFileByPath(graphRelPath)
-      if (existingGraph instanceof TFile) {
-        await this.app.vault.modify(existingGraph, graphContent)
-      } else {
-        await this.app.vault.create(graphRelPath, graphContent)
-      }
-
-      const overviewCanvas = this.canvasGenerator.generateGlobalOverview(this.graph)
-      const canvasRelPath = `${this.settings.nikelDir}/canvas/обзор-базы-знаний.canvas`
-      const existingCanvas = this.app.vault.getAbstractFileByPath(canvasRelPath)
-      const canvasContent = JSON.stringify({ nodes: overviewCanvas.nodes, edges: overviewCanvas.edges }, null, 2)
-      if (existingCanvas instanceof TFile) {
-        await this.app.vault.modify(existingCanvas, canvasContent)
-      } else {
-        await this.app.vault.create(canvasRelPath, canvasContent)
-      }
-
-      modal.setProgress(100, 100, "Сохранение завершено")
-      modal.close()
-
-      const stats = this.graph.getStats()
-      await this.logger.info(`Indexing complete: ${stats.entityCount} entities, ${stats.relationCount} relations, ${generatedCount} notes created`)
-      new Notice(`✅ Индексация завершена. Сущностей: ${stats.entityCount}, связей: ${stats.relationCount}. Создано заметок: ${generatedCount}`)
     } catch (e) {
       modal.close()
       const msg = (e as Error).message
@@ -327,12 +360,16 @@ export default class NikelPlugin extends Plugin {
     }
 
     const hasSource = this.settings.pdfFolder || this.settings.txtFolder || this.settings.docxFolder
-    const isGraphMode = hasSource && this.graph.entities.length > 0
 
-    if (isGraphMode) {
-      await this.processWithGraph(match.input, match.line, editor)
+    if (this.settings.indexingMode === "direct" && hasSource) {
+      await this.processWithDirectSearch(match.input, match.line, editor)
     } else {
-      await this.processDirect(match, editor)
+      const isGraphMode = hasSource && this.graph.entities.length > 0
+      if (isGraphMode) {
+        await this.processWithGraph(match.input, match.line, editor)
+      } else {
+        await this.processDirect(match, editor)
+      }
     }
   }
 
@@ -418,6 +455,58 @@ export default class NikelPlugin extends Plugin {
       }
     } catch (e) {
       await this.logger.error(`processWithGraph failed: ${(e as Error).message}`)
+      new Notice(`❌ Ошибка: ${(e as Error).message}`)
+    }
+  }
+
+  private async processWithDirectSearch(
+    input: string,
+    triggerLine: number,
+    editor: any,
+  ): Promise<void> {
+    await this.logger.info("processWithDirectSearch", { input: input.slice(0, 100) })
+    new Notice("🔍 Ищу в текстовом индексе...")
+
+    try {
+      const chunks = this.documentStore.search(input, 5)
+
+      if (chunks.length === 0) {
+        new Notice("Ничего не найдено в индексе")
+        return
+      }
+
+      const contextParts = chunks.map(
+        (c, i) => `[Источник ${i + 1}]: ${c.sourcePath} (стр. ${c.pageNum})\n${c.text}`,
+      )
+      const context = contextParts.join("\n\n---\n\n")
+
+      const response = await this.ollama.chat({
+        messages: [
+          {
+            role: "system",
+            content: `Ты — полезный AI-ассистент. Отвечай ТОЛЬКО на русском языке. Используй предоставленный контекст для ответа. Если контекст не содержит ответа, скажи что информации недостаточно.\n\nКонтекст:\n${context}`,
+          },
+          { role: "user", content: input },
+        ],
+        model: this.settings.model,
+        url: this.settings.ollamaUrl,
+      })
+
+      if (!response.trim()) {
+        new Notice("Модель вернула пустой ответ")
+        return
+      }
+
+      const formatted = formatResponse(response, this.settings.model)
+      const insertLine = Math.min(triggerLine + 1, editor.lineCount())
+      editor.replaceRange(
+        `\n${formatted}\n`,
+        { line: insertLine, ch: 0 },
+        { line: insertLine, ch: 0 },
+      )
+      new Notice("✅ Ответ вставлен (прямой поиск)")
+    } catch (e) {
+      await this.logger.error(`processWithDirectSearch failed: ${(e as Error).message}`)
       new Notice(`❌ Ошибка: ${(e as Error).message}`)
     }
   }

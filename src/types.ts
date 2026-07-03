@@ -13,7 +13,7 @@ export interface NikelSettings {
   txtFolder: string
   docxFolder: string
   nikelDir: string
-  indexingMode: "vision" | "fast"
+  indexingMode: "vision" | "fast" | "direct"
 }
 
 export interface TriggerMatch {
@@ -144,6 +144,13 @@ export interface PdfExtractResult {
   markdown: string
   pageCount: number
   pages: string[]
+}
+
+export interface TextChunk {
+  sourcePath: string
+  pageNum: number
+  chunkIndex: number
+  text: string
 }
 
 export interface ExtractionResult {

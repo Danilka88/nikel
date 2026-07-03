@@ -164,14 +164,15 @@ export class NikelSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Режим индексации")
-      .setDesc("Полный — Vision LLM на каждую страницу (медленно, для сканов). Быстрый — извлечение текста pdfjs (мгновенно, только для текстовых PDF)")
+      .setDesc("Полный — Vision LLM на каждую страницу (медленно, для сканов). Быстрый — pdfjs-текст + LLM для извлечения сущностей. Прямой — только текст, LLM для @nikel_s")
       .addDropdown((dropdown) =>
         dropdown
           .addOption("vision", "Полный (Vision LLM)")
           .addOption("fast", "Быстрый (извлечение текста)")
+          .addOption("direct", "Прямой (только текст, без ИИ)")
           .setValue(this.plugin.settings.indexingMode)
           .onChange(async (value) => {
-            this.plugin.settings.indexingMode = value as "vision" | "fast"
+            this.plugin.settings.indexingMode = value as "vision" | "fast" | "direct"
             await this.plugin.saveSettings()
           }),
       )

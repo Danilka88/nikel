@@ -168,4 +168,41 @@ describe("NikelPlugin", () => {
     expect(replaceRange).toHaveBeenCalled()
     expect(replaceRange.mock.calls[0][1].line).toBe(1)
   })
+
+  describe("direct mode", () => {
+    beforeEach(() => {
+      plugin.settings.indexingMode = "direct"
+      plugin.settings.pdfFolder = "/some/pdf/folder"
+      plugin.documentStore = {
+        search: vi.fn(),
+      } as any
+      plugin.ollama.chat = vi.fn().mockResolvedValue("Based on the documents, lithium is used in batteries.")
+    })
+
+    it("calls processWithDirectSearch when direct mode and source exists", async () => {
+      plugin.documentStore.search = vi.fn().mockReturnValue([
+        { sourcePath: "/path/doc1.pdf", pageNum: 1, chunkIndex: 0, text: "lithium ion battery" },
+      ])
+
+      const editor = createMockEditor(["@nikel_s lithium battery"], 0)
+      mockActiveView(editor)
+
+      await plugin.processNikelTask()
+
+      expect(plugin.documentStore.search).toHaveBeenCalledWith("lithium battery", 5)
+      expect(plugin.ollama.chat).toHaveBeenCalled()
+      expect(editor.replaceRange).toHaveBeenCalled()
+    })
+
+    it("shows notice when no chunks found in direct search", async () => {
+      plugin.documentStore.search = vi.fn().mockReturnValue([])
+
+      const editor = createMockEditor(["@nikel_s something"], 0)
+      mockActiveView(editor)
+
+      await plugin.processNikelTask()
+
+      expect(Notice.lastMessage).toBe("Ничего не найдено в индексе")
+    })
+  })
 })
