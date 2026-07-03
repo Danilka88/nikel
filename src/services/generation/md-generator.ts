@@ -29,7 +29,7 @@ export class MdGenerator {
 
     if (entity.confidence) frontmatter.confidence = entity.confidence
     if (entity.geography) frontmatter.geography = entity.geography
-    if (entity.year) frontmatter.year = entity.year
+    if (entity.year !== undefined) frontmatter.year = entity.year
     if (entity.sourceType) frontmatter.sourceType = entity.sourceType
 
     const relatedEntities = relations

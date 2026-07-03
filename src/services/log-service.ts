@@ -3,11 +3,16 @@ import * as path from "path"
 import { Logger } from "../types"
 
 const MAX_LINES = 500
+const FLUSH_INTERVAL_MS = 200
+const FLUSH_BATCH_SIZE = 20
 
 export class FileLogger implements Logger {
   private _logPath: string
   private _buffer: string[] = []
+  private _pending: string[] = []
   private _pluginVersion = ""
+  private _flushTimer: ReturnType<typeof setTimeout> | null = null
+  private _flushPromise: Promise<void> | null = null
 
   constructor(logDir: string) {
     const nikeldir = path.join(logDir, ".nikel")
@@ -15,19 +20,21 @@ export class FileLogger implements Logger {
   }
 
   async info(msg: string, context?: Record<string, string>): Promise<void> {
-    await this._append("INFO", msg, context)
+    this._enqueue("INFO", msg, context)
   }
 
   async warn(msg: string, context?: Record<string, string>): Promise<void> {
-    await this._append("WARN", msg, context)
+    this._enqueue("WARN", msg, context)
   }
 
   async error(msg: string, context?: Record<string, string>): Promise<void> {
-    await this._append("ERROR", msg, context)
+    this._enqueue("ERROR", msg, context)
   }
 
   async clear(pluginVersion?: string): Promise<void> {
+    await this._flushNow()
     this._buffer = []
+    this._pending = []
     this._pluginVersion = pluginVersion || ""
     const header = `# Nikel Log / plugin: ${this._pluginVersion || "unknown"} / maxLines: ${MAX_LINES}`
     this._buffer.push(header)
@@ -40,6 +47,7 @@ export class FileLogger implements Logger {
   }
 
   async getLogContent(): Promise<string> {
+    await this._flushNow()
     if (this._buffer.length === 0) return ""
     return this._buffer.join("\n")
   }
@@ -62,7 +70,7 @@ export class FileLogger implements Logger {
     }
   }
 
-  private async _append(level: string, msg: string, context?: Record<string, string>): Promise<void> {
+  private _enqueue(level: string, msg: string, context?: Record<string, string>): void {
     const ts = new Date().toISOString()
     let line = `[${ts}] [${level}]  ${msg}`
     if (context) {
@@ -77,10 +85,49 @@ export class FileLogger implements Logger {
       this._buffer.splice(0, this._buffer.length - MAX_LINES)
     }
 
-    try {
-      await fs.appendFile(this._logPath, line + "\n", "utf-8")
-    } catch {
-      // non-critical
+    this._pending.push(line)
+    this._scheduleFlush()
+  }
+
+  private _scheduleFlush(): void {
+    if (this._flushPromise) return
+
+    if (this._pending.length >= FLUSH_BATCH_SIZE) {
+      this._flushNow()
+      return
     }
+
+    if (!this._flushTimer) {
+      this._flushTimer = setTimeout(() => {
+        this._flushTimer = null
+        this._flushNow()
+      }, FLUSH_INTERVAL_MS)
+    }
+  }
+
+  private async _flushNow(): Promise<void> {
+    if (this._flushPromise) {
+      await this._flushPromise
+      return
+    }
+
+    const lines = this._pending.splice(0, this._pending.length)
+    if (lines.length === 0) return
+
+    if (this._flushTimer) {
+      clearTimeout(this._flushTimer)
+      this._flushTimer = null
+    }
+
+    this._flushPromise = (async () => {
+      try {
+        await fs.appendFile(this._logPath, lines.join("\n") + "\n", "utf-8")
+      } catch {
+        // non-critical
+      }
+    })()
+
+    await this._flushPromise
+    this._flushPromise = null
   }
 }

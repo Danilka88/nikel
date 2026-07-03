@@ -9,6 +9,7 @@ import type NikelPlugin from "../main"
 export class NikelSettingTab extends PluginSettingTab {
   plugin: NikelPlugin
   modelOptions: string[]
+  private _startBtn: import("obsidian").ButtonComponent | null = null
 
   constructor(app: App, plugin: NikelPlugin) {
     super(app, plugin)
@@ -76,6 +77,10 @@ export class NikelSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this
     containerEl.empty()
+
+    this.plugin.onIndexingChange = (running) => {
+      this._startBtn?.setDisabled(running)
+    }
 
     containerEl.createEl("h2", { text: "Nikel — настройки" })
 
@@ -155,12 +160,15 @@ export class NikelSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Индексировать PDF")
-      .setDesc("Запустить индексацию PDF-файлов")
-      .addButton((btn) =>
-        btn.setButtonText("Старт").onClick(async () => {
+      .setDesc("Запустить индексацию файлов из указанных папок")
+      .addButton((btn) => {
+        btn.setButtonText("Старт")
+        btn.setDisabled(this.plugin.isIndexing)
+        btn.onClick(async () => {
           await this.plugin.runIndexing()
-        }),
-      )
+        })
+        this._startBtn = btn
+      })
 
     new Setting(containerEl)
       .setName("Режим индексации")

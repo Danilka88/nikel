@@ -6,8 +6,10 @@ const mammoth = require("mammoth") as {
 
 export class TextExtractor {
   async extractTxt(data: Uint8Array): Promise<PdfExtractResult> {
-    const markdown = new TextDecoder().decode(data).replace(/\r\n/g, "\n")
-    return { markdown, pageCount: 1, pages: [markdown] }
+    let text = new TextDecoder().decode(data)
+    text = text.replace(/^\uFEFF/, "")
+    text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+    return { markdown: text, pageCount: 1, pages: [text] }
   }
 
   async extractDocx(data: Uint8Array): Promise<PdfExtractResult> {

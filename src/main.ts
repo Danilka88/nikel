@@ -51,6 +51,8 @@ export default class NikelPlugin extends Plugin {
   indexGenerator!: IndexGenerator
   canvasGenerator!: CanvasGenerator
   documentStore!: DocumentStore
+  isIndexing = false
+  onIndexingChange: ((running: boolean) => void) | null = null
 
   async onload(): Promise<void> {
     await this.loadSettings()
@@ -135,6 +137,22 @@ export default class NikelPlugin extends Plugin {
   }
 
   async runIndexing(): Promise<void> {
+    if (this.isIndexing) {
+      new Notice("Индексация уже запущена")
+      return
+    }
+    this.isIndexing = true
+    this.onIndexingChange?.(true)
+
+    try {
+      await this._doIndexing()
+    } finally {
+      this.isIndexing = false
+      this.onIndexingChange?.(false)
+    }
+  }
+
+  private async _doIndexing(): Promise<void> {
     const folders = [
       { path: this.settings.pdfFolder, exts: [".pdf"], label: "PDF" },
       { path: this.settings.txtFolder, exts: [".txt"], label: "TXT" },

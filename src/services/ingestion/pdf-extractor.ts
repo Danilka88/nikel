@@ -53,13 +53,20 @@ export class PdfExtractor {
       const pageCount = await this._renderer.getPageCount()
 
       for (let i = 0; i < pageCount; i += this._options.parallelPages) {
-        const batch = []
+        const batch: Promise<string>[] = []
         const end = Math.min(i + this._options.parallelPages, pageCount)
         for (let p = i; p < end; p++) {
           batch.push(this.processPage(p, mode))
         }
-        const results = await Promise.all(batch)
-        pageMarkdowns.push(...results)
+        const settled = await Promise.allSettled(batch)
+        for (const result of settled) {
+          if (result.status === "fulfilled") {
+            pageMarkdowns.push(result.value)
+          } else {
+            await this._logger?.warn(`Page processing failed`, { error: result.reason?.message ?? String(result.reason) })
+            pageMarkdowns.push("")
+          }
+        }
       }
 
       const markdown = pageCount > 1

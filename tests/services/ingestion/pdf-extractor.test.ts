@@ -104,12 +104,14 @@ describe("PdfExtractor", () => {
     expect(renderer.renderToBlob).toHaveBeenCalledTimes(6)
   })
 
-  it("throws after max retries exceeded", async () => {
+  it("allSettled — individual page failure returns empty page strings", async () => {
     renderer.renderToBlob = vi.fn().mockRejectedValue(new Error("persistent fail"))
     ollama.chat = vi.fn()
 
-    await expect(extractor.extractPdf(new Uint8Array(10)))
-      .rejects.toThrow("persistent fail")
+    const result = await extractor.extractPdf(new Uint8Array(10))
+    expect(result.pages).toHaveLength(3)
+    expect(result.pages.every((p) => p === "")).toBe(true)
+    // markdown = LLM result; undefined here because mock returns void
   })
 
   it("fast mode uses short text when Vision fallback fails", async () => {
