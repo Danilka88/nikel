@@ -6,6 +6,8 @@ function createMockPlugin(commands = DEFAULT_SETTINGS.commands) {
   const settings: NikelSettings = {
     ollamaUrl: "http://localhost:11434",
     model: "gemma4:e4b",
+    pdfFolder: "",
+    nikelDir: "nikel",
     commands,
   }
   return {

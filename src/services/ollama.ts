@@ -1,4 +1,4 @@
-import { GenerateOptions, OllamaClient } from "../types"
+import { ChatOptions, GenerateOptions, OllamaClient } from "../types"
 
 const DEFAULT_TIMEOUT_MS = 120_000
 const MAX_RETRIES = 1
@@ -29,6 +29,49 @@ export class DefaultOllamaClient implements OllamaClient {
         url,
         signal: opts.signal,
         fetcher: (u, s) => this.rawFetch(u, s, opts),
+      })
+    } catch (err) {
+      throw enhanceError(err, url)
+    }
+  }
+
+  async chat(opts: ChatOptions): Promise<string> {
+    const url = this.normalizeUrl(opts.url, "/api/chat")
+
+    try {
+      return await this.fetchWithFallback({
+        url,
+        signal: opts.signal,
+        fetcher: async (u, s) => {
+          const messages = opts.messages.map((m) => {
+            const msg: Record<string, unknown> = { role: m.role, content: m.content }
+            if (m.images && m.images.length > 0) {
+              msg.images = m.images
+            }
+            return msg
+          })
+
+          const body = JSON.stringify({
+            model: opts.model,
+            messages,
+            stream: false,
+          })
+
+          const res = await this._fetch(u, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: s,
+            body,
+          })
+
+          if (!res.ok) {
+            const text = await res.text()
+            throw new Error(`HTTP ${res.status}: ${text}`)
+          }
+
+          const data = (await res.json()) as { message: { content: string } }
+          return data.message.content
+        },
       })
     } catch (err) {
       throw enhanceError(err, url)

@@ -16,5 +16,8 @@
     "obsidian": "^1.7.2",
     "typescript": "^5.7.0",
     "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^6.1.200"
   }
 }

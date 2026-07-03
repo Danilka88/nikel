@@ -17,6 +17,8 @@ describe("NikelPlugin", () => {
       plugin.settings = {
         ollamaUrl: "http://localhost:11434",
         model: "gemma4:e4b",
+        pdfFolder: "",
+        nikelDir: "nikel",
         commands: [
           {
             trigger: "@nikel_s",

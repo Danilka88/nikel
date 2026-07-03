@@ -85,6 +85,54 @@ export class NikelSettingTab extends PluginSettingTab {
         }),
       )
 
+    containerEl.createEl("h3", { text: "Knowledge Graph" })
+
+    new Setting(containerEl)
+      .setName("PDF-папка")
+      .setDesc("Путь к папке с PDF-файлами для индексации")
+      .addText((text) =>
+        text
+          .setPlaceholder("/path/to/pdfs")
+          .setValue(this.plugin.settings.pdfFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.pdfFolder = value
+            await this.plugin.saveSettings()
+          }),
+      )
+
+    new Setting(containerEl)
+      .setName("Папка генерации")
+      .setDesc("Куда сохранять сгенерированные документы (относительно хранилища)")
+      .addText((text) =>
+        text
+          .setPlaceholder("nikel")
+          .setValue(this.plugin.settings.nikelDir)
+          .onChange(async (value) => {
+            this.plugin.settings.nikelDir = value
+            await this.plugin.saveSettings()
+          }),
+      )
+
+    new Setting(containerEl)
+      .setName("Индексировать PDF")
+      .setDesc("Запустить индексацию PDF-файлов")
+      .addButton((btn) =>
+        btn.setButtonText("Старт").onClick(async () => {
+          await this.plugin.runIndexing()
+        }),
+      )
+
+    new Setting(containerEl)
+      .setName("Статус базы знаний")
+      .setDesc("Количество сущностей и связей в графе")
+      .addButton((btn) =>
+        btn.setButtonText("Статус").onClick(async () => {
+          const stats = this.plugin.graph.getStats()
+          new Notice(`📊 Сущностей: ${stats.entityCount}, связей: ${stats.relationCount}, источников: ${stats.fileCount}`)
+        }),
+      )
+
+    containerEl.createEl("hr")
     containerEl.createEl("h3", { text: "Команды (@nikel_*)" })
 
     this.plugin.settings.commands.forEach((cmd, index) => {
