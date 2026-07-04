@@ -58,9 +58,12 @@ export class NikelSettingTab extends PluginSettingTab {
               } else if (fullPath) {
                 folderPath = fullPath.replace(/\/[^/]+$/, "")
               } else {
-                new Notice("Не удалось определить путь к папке")
-                document.body.removeChild(input)
-                return
+                folderPath = window.prompt("Введите путь к папке:") || ""
+                if (!folderPath) {
+                  new Notice("Путь не указан")
+                  document.body.removeChild(input)
+                  return
+                }
               }
               this.plugin.settings[key] = folderPath
               this.plugin.saveSettings()
