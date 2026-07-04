@@ -9,6 +9,11 @@
 - **Презентация плагина НИКЕЛЬ** (Капылов Данил, 221) — https://disk.yandex.ru/i/RaBHJb_T994Xlg
 - **GitHub репозиторий** — https://github.com/Danilka88/nikel.git
 
+<p align="center">
+  <a href="https://disk.yandex.ru/i/NC4LnVlAr-_T8Q"><img src="https://downloader.disk.yandex.ru/preview/35ece3d8c8cd958fd4f6636c98e9302857ea19da7428025ebdf42b2c0d5047ad/6a490089/bMJK6417wUyDVX7Leif3DCLtUDaq9QOg7JFr2X0d-7Dw0zJ2flC8mY55wd6kRJux84hcURO5UW6niD9yrNHDUg%3D%3D?uid=0&size=640x480" width="320" alt="Обзор работы плагина"></a>
+  <a href="https://disk.yandex.ru/i/RaBHJb_T994Xlg"><img src="https://downloader.disk.yandex.ru/preview/002e5c533a6db5cfd3c2a4560219e30eb617d008cb3d91a95730f7b975b32472/6a49008a/iXMLruwMKtbmXZFVQnT6XJQXewTnIFU0fqpDYyWqOIXpDwFQI0jLTG7kybXAyUJNBO9eXbn2hzA8gHDjPSrIsQ%3D%3D?uid=0&size=640x480" width="320" alt="Презентация плагина"></a>
+</p>
+
 ---
 
 ## Проблема: Почему ценные знания теряются
