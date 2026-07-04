@@ -106,6 +106,7 @@ export default class NikelPlugin extends Plugin {
     this.queryEngine = new QueryEngine(this.graph, this.ollama, {
       model: this.settings.model,
       url: this.settings.ollamaUrl,
+      nikelDir: this.settings.nikelDir,
     })
     this.textExtractor = new TextExtractor()
     this.mdGenerator = new MdGenerator(nikelDir)
@@ -317,7 +318,7 @@ export default class NikelPlugin extends Plugin {
         let generatedCount = 0
         for (const entity of this.graph.entities) {
           const doc = this.mdGenerator.generateDoc(entity, this.graph.relations)
-          const vaultRelPath = doc.path.startsWith(vaultBase)
+          const vaultRelPath = vaultBase && doc.path.startsWith(vaultBase)
             ? doc.path.slice(vaultBase.length + 1)
             : `${this.settings.nikelDir}/_answers/${doc.path.split("/").pop()}`
           const exists = this.app.vault.getAbstractFileByPath(vaultRelPath)
@@ -454,7 +455,7 @@ export default class NikelPlugin extends Plugin {
       const doc = this.mdGenerator.generateAnswerDoc(result, input, this.settings.model)
 
       const vaultBase = this.vaultBasePath
-      const vaultRelPath = doc.path.startsWith(vaultBase)
+      const vaultRelPath = vaultBase && doc.path.startsWith(vaultBase)
         ? doc.path.slice(vaultBase.length + 1)
         : this.settings.nikelDir + "/_answers/" + doc.path.split("/").pop()
 

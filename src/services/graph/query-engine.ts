@@ -28,7 +28,7 @@ export class QueryEngine {
   constructor(
     private _graph: KnowledgeGraph,
     private _ollama: OllamaClient,
-    private _options: { model: string; url: string },
+    private _options: { model: string; url: string; nikelDir?: string },
   ) {}
 
   async answerQuestion(question: string, filters?: SearchFilters): Promise<QueryResult> {
@@ -38,6 +38,7 @@ export class QueryEngine {
     const foundRelations: Relation[] = []
     const linkedDocs = new Set<string>()
 
+    const prefix = this._options.nikelDir ? `${this._options.nikelDir}/` : ""
     for (const name of entityNames) {
       const results = this._graph.searchFiltered({ ...filters, text: name })
       for (const e of results.entities) {
@@ -45,7 +46,7 @@ export class QueryEngine {
           foundEntities.push(e)
           const dir = getSubDir(e.type)
           const safeName = safeFileName(e.name) || "unnamed"
-          linkedDocs.add(`${dir}/${safeName}.md`)
+          linkedDocs.add(`${prefix}${dir}/${safeName}.md`)
         }
       }
       for (const r of results.relations) {
@@ -82,14 +83,33 @@ export class QueryEngine {
 
     try {
       const raw = await this._ollama.chat(chatOpts)
-      const json = raw.match(/\[[\s\S]*?\]/)
-      if (json) {
-        const parsed = JSON.parse(json[0])
-        if (Array.isArray(parsed)) return parsed.map(String)
-        return []
-      }
+      const parsed = this.tryParseJsonArray(raw)
+      if (parsed.length > 0) return parsed
+      return []
     } catch {
       return []
+    }
+  }
+
+  private tryParseJsonArray(raw: string): string[] {
+    const greedy = raw.match(/\[[\s\S]*\]/)
+    if (greedy) {
+      try {
+        const parsed = JSON.parse(greedy[0])
+        if (Array.isArray(parsed)) return parsed.map(String)
+      } catch {
+        // fall through to non-greedy
+      }
+    }
+
+    const nonGreedy = raw.match(/\[[\s\S]*?\]/)
+    if (nonGreedy) {
+      try {
+        const parsed = JSON.parse(nonGreedy[0])
+        if (Array.isArray(parsed)) return parsed.map(String)
+      } catch {
+        // ignore
+      }
     }
 
     return []
