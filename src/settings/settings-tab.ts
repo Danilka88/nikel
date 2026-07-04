@@ -7,6 +7,8 @@ import {
 import type NikelPlugin from "../main"
 import { toErrorMessage } from "../utils"
 
+const YANDEX_KNOWN_MODELS = ["yandexgpt/latest", "yandexgpt-pro/latest", "yandexgpt-lite/latest"]
+
 export class NikelSettingTab extends PluginSettingTab {
   plugin: NikelPlugin
   modelOptions: string[]
@@ -15,15 +17,26 @@ export class NikelSettingTab extends PluginSettingTab {
   constructor(app: App, plugin: NikelPlugin) {
     super(app, plugin)
     this.plugin = plugin
-    this.modelOptions = [plugin.settings.model]
+    this.modelOptions = this.getModelOptions()
   }
 
   async loadModels(): Promise<void> {
+    if (this.plugin.settings.provider === "yandex") {
+      this.modelOptions = YANDEX_KNOWN_MODELS
+      return
+    }
     try {
       this.modelOptions = await this.plugin.ollama.listModels(this.plugin.settings.ollamaUrl)
     } catch {
       this.modelOptions = [this.plugin.settings.model]
     }
+  }
+
+  private getModelOptions(): string[] {
+    if (this.plugin.settings.provider === "yandex") {
+      return [this.plugin.settings.yandexModel, ...YANDEX_KNOWN_MODELS]
+    }
+    return [this.plugin.settings.model]
   }
 
   private addFolderSetting(container: HTMLElement, name: string, desc: string, key: "pdfFolder" | "txtFolder" | "docxFolder"): void {
@@ -88,49 +101,116 @@ export class NikelSettingTab extends PluginSettingTab {
 
     containerEl.createEl("h2", { text: "Nikel — настройки" })
 
+    const isYandex = this.plugin.settings.provider === "yandex"
+
     new Setting(containerEl)
-      .setName("Ollama URL")
-      .setDesc("Адрес Ollama сервера (по умолчанию http://localhost:11434)")
-      .addText((text) =>
-        text
-          .setPlaceholder("http://localhost:11434")
-          .setValue(this.plugin.settings.ollamaUrl)
+      .setName("Провайдер")
+      .setDesc("Выберите AI-провайдера: локальный Ollama или облачный YandexGPT")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("ollama", "Ollama (локальный)")
+          .addOption("yandex", "YandexGPT")
+          .setValue(this.plugin.settings.provider)
           .onChange(async (value) => {
-            this.plugin.settings.ollamaUrl = value
+            this.plugin.settings.provider = value as "ollama" | "yandex"
+            this.modelOptions = this.getModelOptions()
             await this.plugin.saveSettings()
+            this.display()
           }),
       )
 
-    new Setting(containerEl)
-      .setName("Модель")
-      .setDesc("Выберите модель Ollama")
-      .addDropdown((dropdown) => {
-        this.modelOptions.forEach((m) => dropdown.addOption(m, m))
-        dropdown.setValue(this.plugin.settings.model)
-        dropdown.onChange(async (value) => {
-          this.plugin.settings.model = value
-          await this.plugin.saveSettings()
-        })
-      })
+    if (isYandex) {
+      containerEl.createEl("h3", { text: "YandexGPT" })
 
-    new Setting(containerEl)
-      .setName("Обновить список моделей")
-      .setDesc("Запросить список доступных моделей из Ollama")
-      .addButton((btn) =>
-        btn.setButtonText("Обновить").onClick(async () => {
-          try {
-            this.modelOptions = await this.plugin.ollama.listModels(this.plugin.settings.ollamaUrl)
-            this.display()
-            new Notice("Список моделей обновлён")
-          } catch (e) {
-            new Notice(`Ошибка: ${toErrorMessage(e)}`)
-          }
-        }),
-      )
+      const savedKey = (() => {
+        try { return localStorage.getItem("nikel-yandex-api-key") || "" } catch { return "" }
+      })()
+
+      new Setting(containerEl)
+        .setName("API-ключ")
+        .setDesc("API-ключ сервисного аккаунта Yandex Cloud. Хранится только в localStorage")
+        .addText((text) => {
+          const inputEl = text
+            .setPlaceholder("ключ...")
+            .setValue(savedKey)
+            .onChange((value) => {
+              try { localStorage.setItem("nikel-yandex-api-key", value) } catch { /* ignore */ }
+            })
+          ;(inputEl as any).inputEl.type = "password"
+        })
+
+      new Setting(containerEl)
+        .setName("ID каталога")
+        .setDesc("Идентификатор каталога в Yandex Cloud (folder ID)")
+        .addText((text) =>
+          text
+            .setPlaceholder("b1g...")
+            .setValue(this.plugin.settings.yandexFolderId)
+            .onChange(async (value) => {
+              this.plugin.settings.yandexFolderId = value
+              await this.plugin.saveSettings()
+            }),
+        )
+
+      new Setting(containerEl)
+        .setName("Модель YandexGPT")
+        .setDesc("Выберите модель YandexGPT")
+        .addDropdown((dropdown) => {
+          const options = [...new Set([this.plugin.settings.yandexModel, ...YANDEX_KNOWN_MODELS])]
+          options.forEach((m) => dropdown.addOption(m, m))
+          dropdown.setValue(this.plugin.settings.yandexModel)
+          dropdown.onChange(async (value) => {
+            this.plugin.settings.yandexModel = value
+            await this.plugin.saveSettings()
+          })
+        })
+    } else {
+      containerEl.createEl("h3", { text: "Ollama" })
+
+      new Setting(containerEl)
+        .setName("Ollama URL")
+        .setDesc("Адрес Ollama сервера (по умолчанию http://localhost:11434)")
+        .addText((text) =>
+          text
+            .setPlaceholder("http://localhost:11434")
+            .setValue(this.plugin.settings.ollamaUrl)
+            .onChange(async (value) => {
+              this.plugin.settings.ollamaUrl = value
+              await this.plugin.saveSettings()
+            }),
+        )
+
+      new Setting(containerEl)
+        .setName("Модель")
+        .setDesc("Выберите модель Ollama")
+        .addDropdown((dropdown) => {
+          this.modelOptions.forEach((m) => dropdown.addOption(m, m))
+          dropdown.setValue(this.plugin.settings.model)
+          dropdown.onChange(async (value) => {
+            this.plugin.settings.model = value
+            await this.plugin.saveSettings()
+          })
+        })
+
+      new Setting(containerEl)
+        .setName("Обновить список моделей")
+        .setDesc("Запросить список доступных моделей из Ollama")
+        .addButton((btn) =>
+          btn.setButtonText("Обновить").onClick(async () => {
+            try {
+              this.modelOptions = await this.plugin.ollama.listModels(this.plugin.settings.ollamaUrl)
+              this.display()
+              new Notice("Список моделей обновлён")
+            } catch (e) {
+              new Notice(`Ошибка: ${toErrorMessage(e)}`)
+            }
+          }),
+        )
+    }
 
     new Setting(containerEl)
       .setName("Проверить подключение")
-      .setDesc("Проверить доступность Ollama по указанному URL")
+      .setDesc(isYandex ? "Проверить доступность YandexGPT" : "Проверить доступность Ollama по указанному URL")
       .addButton((btn) =>
         btn.setButtonText("Тест").onClick(async () => {
           try {

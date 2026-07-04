@@ -13,6 +13,9 @@ function createMockPlugin(commands = DEFAULT_SETTINGS.commands) {
     indexingMode: "vision",
     embeddingModel: "nomic-embed-text",
     embeddingEnabled: false,
+    provider: "ollama",
+    yandexFolderId: "",
+    yandexModel: "yandexgpt/latest",
     commands,
   }
   return {

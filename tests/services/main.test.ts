@@ -24,6 +24,9 @@ describe("NikelPlugin", () => {
         indexingMode: "vision",
         embeddingModel: "nomic-embed-text",
         embeddingEnabled: false,
+        provider: "ollama",
+        yandexFolderId: "",
+        yandexModel: "yandexgpt/latest",
         commands: [
           {
             trigger: "@nikel_s",
@@ -150,7 +153,7 @@ describe("NikelPlugin", () => {
 
     await plugin.processNikelTask()
 
-    expect(Notice.lastMessage).toBe("❌ Ошибка Ollama: Connection refused")
+    expect(Notice.lastMessage).toBe("❌ Ошибка: Connection refused")
   })
 
   it("scans upward from cursor to find trigger", async () => {

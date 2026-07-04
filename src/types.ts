@@ -5,6 +5,8 @@ export interface NikelCommand {
   enabled: boolean
 }
 
+export type Provider = "ollama" | "yandex"
+
 export interface NikelSettings {
   ollamaUrl: string
   model: string
@@ -16,6 +18,9 @@ export interface NikelSettings {
   indexingMode: IndexingMode
   embeddingModel: string
   embeddingEnabled: boolean
+  provider: Provider
+  yandexFolderId: string
+  yandexModel: string
 }
 
 export interface TriggerMatch {
@@ -238,6 +243,9 @@ export const DEFAULT_SETTINGS: NikelSettings = {
   indexingMode: "vision",
   embeddingModel: "nomic-embed-text",
   embeddingEnabled: true,
+  provider: "ollama",
+  yandexFolderId: "",
+  yandexModel: "yandexgpt/latest",
   commands: [
     {
       trigger: "@nikel_s",

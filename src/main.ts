@@ -13,10 +13,14 @@ import {
   DEFAULT_SETTINGS,
   PdfExtractResult,
   TriggerMatch,
+  type OllamaClient,
+  type Provider,
 } from "./types"
 import { detectSourceType, resolvePdfMode, semanticChunk, toErrorMessage } from "./utils"
 import { NikelSuggester } from "./suggester"
 import { DefaultOllamaClient } from "./services/ollama"
+import { YandexGPTClient } from "./services/yandex-gpt"
+
 import { findTrigger, buildPrompt } from "./services/trigger-parser"
 import { formatResponse } from "./services/response-formatter"
 import { NikelSettingTab } from "./settings/settings-tab"
@@ -39,7 +43,7 @@ const NIKEL_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100
 export default class NikelPlugin extends Plugin {
   settings!: NikelSettings
   suggester!: NikelSuggester
-  ollama!: DefaultOllamaClient
+  ollama!: OllamaClient
   fileWatcher!: FileWatcher
   graph!: KnowledgeGraph
   queryEngine!: QueryEngine
@@ -56,7 +60,7 @@ export default class NikelPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings()
-    this.ollama = new DefaultOllamaClient()
+    this.ollama = this.buildLlmClient()
     addIcon("nikel", NIKEL_ICON)
 
     this.initKnowledgeGraphServices()
@@ -131,10 +135,63 @@ export default class NikelPlugin extends Plugin {
 
   async loadSettings(): Promise<void> {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData())
+    this.autoSwitchForProvider()
   }
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings)
+  }
+
+  private buildLlmClient(): OllamaClient {
+    const ollamaClient = new DefaultOllamaClient()
+    const yandexKey = this.getYandexApiKey()
+    const yandexClient = yandexKey && this.settings.yandexFolderId
+      ? new YandexGPTClient(yandexKey, this.settings.yandexFolderId)
+      : null
+
+    if (this.settings.provider === "yandex") {
+      if (!yandexClient) {
+        new Notice("YandexGPT: не указан API-ключ или ID каталога. Используется Ollama.")
+        return ollamaClient
+      }
+      return new FallbackLLMClient(
+        yandexClient, ollamaClient,
+        this.settings.yandexModel, this.settings.model,
+        this.settings.ollamaUrl, this.logger,
+      )
+    }
+
+    if (yandexClient) {
+      return new FallbackLLMClient(
+        ollamaClient, yandexClient,
+        this.settings.model, this.settings.yandexModel,
+        this.settings.ollamaUrl, this.logger,
+      )
+    }
+
+    return ollamaClient
+  }
+
+  private autoSwitchForProvider(): void {
+    if (this.settings.provider !== "yandex") return
+
+    if (this.settings.indexingMode === "vision") {
+      this.settings.indexingMode = "fast"
+      new Notice("YandexGPT: режим индексации переключён на «Быстрый» (Vision не поддерживается)")
+    }
+
+    if (this.settings.embeddingEnabled) {
+      this.settings.embeddingEnabled = false
+      new Notice("YandexGPT: эмбеддинги отключены (не поддерживаются)")
+    }
+  }
+
+  private getYandexApiKey(): string {
+    try {
+      return localStorage.getItem("nikel-yandex-api-key") || ""
+    } catch {
+      return ""
+    }
   }
 
   async runIndexing(): Promise<void> {
@@ -646,7 +703,65 @@ export default class NikelPlugin extends Plugin {
       new Notice("✅ Ответ вставлен")
     } catch (e) {
       await this.logger.error(`processDirect failed: ${toErrorMessage(e)}`)
-      new Notice(`❌ Ошибка Ollama: ${toErrorMessage(e)}`)
+      new Notice(`❌ Ошибка: ${toErrorMessage(e)}`)
     }
+  }
+}
+
+class FallbackLLMClient implements OllamaClient {
+  constructor(
+    private _primary: OllamaClient,
+    private _secondary: OllamaClient,
+    private _primaryModel: string,
+    private _secondaryModel: string,
+    private _primaryUrl: string,
+    private _logger?: import("./types").Logger,
+  ) {}
+
+  async generate(opts: import("./types").GenerateOptions): Promise<string> {
+    try {
+      return await this._primary.generate({ ...opts, model: this._primaryModel })
+    } catch (e) {
+      if (!this._isRetryable(e)) throw e
+      await this._logger?.warn("Primary LLM generate failed, fallback", { error: toErrorMessage(e) })
+      return await this._secondary.generate({ ...opts, model: this._secondaryModel })
+    }
+  }
+
+  async chat(opts: import("./types").ChatOptions): Promise<string> {
+    try {
+      return await this._primary.chat({ ...opts, model: this._primaryModel })
+    } catch (e) {
+      if (!this._isRetryable(e)) throw e
+      await this._logger?.warn("Primary LLM chat failed, fallback", { error: toErrorMessage(e) })
+      return await this._secondary.chat({ ...opts, model: this._secondaryModel })
+    }
+  }
+
+  async getEmbeddings(opts: import("./types").EmbeddingOptions): Promise<number[][]> {
+    try {
+      return await this._primary.getEmbeddings(opts)
+    } catch (e) {
+      if (!this._isRetryable(e)) throw e
+      await this._logger?.warn("Primary LLM embeddings failed, fallback", { error: toErrorMessage(e) })
+      return await this._secondary.getEmbeddings(opts)
+    }
+  }
+
+  async listModels(url: string): Promise<string[]> {
+    try {
+      return await this._primary.listModels(url)
+    } catch (e) {
+      if (!this._isRetryable(e)) throw e
+      await this._logger?.warn("Primary LLM listModels failed, fallback", { error: toErrorMessage(e) })
+      return await this._secondary.listModels(url)
+    }
+  }
+
+  private _isRetryable(err: unknown): boolean {
+    if (err instanceof TypeError) return true
+    if (err instanceof DOMException && err.name === "AbortError") return true
+    const msg = err instanceof Error ? err.message : String(err)
+    return msg.includes("fetch") || msg.includes("Failed to fetch") || msg.includes("NetworkError")
   }
 }
