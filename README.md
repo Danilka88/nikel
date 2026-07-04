@@ -2,10 +2,12 @@
 
 > **Развяжите «Научный клубок»** — превратите разрозненные отчёты, статьи и эксперименты в единую, живую базу знаний с графовой аналитикой, гибридным RAG-поиском и AI-ассистентом.
 
-🔗 **[Все материалы на Яндекс Диск](https://disk.yandex.ru/d/R-LRydZQJKfj-w)** ·
-[Обзор работы плагина](https://disk.yandex.ru/i/NC4LnVlAr-_T8Q) ·
-[Презентация](https://disk.yandex.ru/i/RaBHJb_T994Xlg) ·
-[GitHub репозиторий](https://github.com/Danilka88/nikel.git)
+## Ссылки
+
+- **Все материалы на Яндекс Диск** — https://disk.yandex.ru/d/R-LRydZQJKfj-w
+- **Обзор работы плагина Никель** (Капылов Данил, 221) — https://disk.yandex.ru/i/NC4LnVlAr-_T8Q
+- **Презентация плагина НИКЕЛЬ** (Капылов Данил, 221) — https://disk.yandex.ru/i/RaBHJb_T994Xlg
+- **GitHub репозиторий** — https://github.com/Danilka88/nikel.git
 
 ---
 
