@@ -8,6 +8,8 @@
 - **Обзор работы плагина Никель** (Капылов Данил, 221) — https://disk.yandex.ru/i/NC4LnVlAr-_T8Q
 - **Презентация плагина НИКЕЛЬ** (Капылов Данил, 221) — https://disk.yandex.ru/i/RaBHJb_T994Xlg
 - **GitHub репозиторий** — https://github.com/Danilka88/nikel.git
+- **Пример структуры и файлов в Obsidian** — https://disk.yandex.ru/d/Wli3if3bdz3D4A
+- **Код плагина nikel-plugin** — https://disk.yandex.ru/d/oylanrEi6MIPfg
 
 ---
 
