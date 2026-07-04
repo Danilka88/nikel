@@ -1,7 +1,8 @@
 import * as fs from "fs/promises"
-import * as path from "path"
-import { Entity, IndexManifest, Relation, SearchFilters, createEmptyManifest } from "../../types"
-import { normalizeName } from "../ingestion/entity-extractor"
+import { Entity, IndexManifest, Relation, SearchFilters } from "../../types"
+import { createEmptyManifest } from "../../utils"
+import { dedupEntities, normalizeName } from "../../utils/entity"
+import { atomicWriteJson } from "../../utils/atomic-save"
 
 export class KnowledgeGraph {
   private _manifest: IndexManifest = createEmptyManifest()
@@ -32,7 +33,7 @@ export class KnowledgeGraph {
         try {
           await fs.copyFile(this._manifestPath, bakPath)
         } catch {
-          // no original file to back up
+          console.warn("KnowledgeGraph: не удалось создать бэкап index.json")
         }
       }
       this._manifest = createEmptyManifest()
@@ -40,10 +41,7 @@ export class KnowledgeGraph {
   }
 
   async save(): Promise<void> {
-    await fs.mkdir(path.dirname(this._manifestPath), { recursive: true })
-    const tmpPath = this._manifestPath + ".tmp"
-    await fs.writeFile(tmpPath, JSON.stringify(this._manifest, null, 2), "utf-8")
-    await fs.rename(tmpPath, this._manifestPath)
+    await atomicWriteJson(this._manifestPath, this._manifest)
   }
 
   addEntity(entity: Entity): void {
@@ -122,30 +120,8 @@ export class KnowledgeGraph {
   }
 
   mergeIndex(manifest: IndexManifest): void {
-    for (const entity of manifest.entities) {
-      const key = `${entity.type}:${normalizeName(entity.name)}`
-      const existing = this._manifest.entities.find((e) => {
-        return `${e.type}:${normalizeName(e.name)}` === key
-      })
-
-      if (existing) {
-        const mergedAliases = new Set([...existing.aliases, ...entity.aliases, existing.name, entity.name])
-        existing.aliases = [...mergedAliases]
-        existing.properties = { ...existing.properties, ...entity.properties }
-        existing.tags = [...new Set([...existing.tags, ...entity.tags])]
-        existing.sourcePage = entity.sourcePage ?? existing.sourcePage
-        existing.confidence = entity.confidence ?? existing.confidence
-        existing.geography = entity.geography ?? existing.geography
-        existing.year = entity.year ?? existing.year
-        existing.sourceType = entity.sourceType ?? existing.sourceType
-        if (entity.context && !existing.context?.includes(entity.context)) {
-          existing.context = [existing.context, entity.context].filter(Boolean).join("\n")
-        }
-        existing.updatedAt = new Date().toISOString()
-      } else {
-        this._manifest.entities.push({ ...entity })
-      }
-    }
+    const merged = dedupEntities([...this._manifest.entities, ...manifest.entities])
+    this._manifest.entities = merged
 
     for (const relation of manifest.relations) {
       const exists = this._manifest.relations.some(

@@ -1,8 +1,10 @@
 import { ChatOptions, EmbeddingOptions, GenerateOptions, OllamaClient } from "../types"
+import { timeoutSignal } from "../utils/timeout"
+import { resolveFetch } from "../utils/fetch"
+import { enhanceOllamaError, isLocalhostUrl, isRetryable, LOCALHOST_RE } from "../utils/network"
 
 const DEFAULT_TIMEOUT_MS = 120_000
 const MAX_RETRIES = 1
-const LOCALHOST_RE = /\/\/localhost(?=:\d+|$)/
 
 interface OllamaTagsResponse {
   models: { name: string }[]
@@ -36,7 +38,7 @@ export class DefaultOllamaClient implements OllamaClient {
         fetcher: (u, s) => this.rawFetch(u, s, opts),
       })
     } catch (err) {
-      throw enhanceError(err, url)
+      throw enhanceOllamaError(err, url)
     } finally {
       timeout?.clear()
     }
@@ -96,7 +98,7 @@ export class DefaultOllamaClient implements OllamaClient {
         },
       })
     } catch (err) {
-      throw enhanceError(err, url)
+      throw enhanceOllamaError(err, url)
     } finally {
       timeout?.clear()
     }
@@ -118,7 +120,7 @@ export class DefaultOllamaClient implements OllamaClient {
         },
       })
     } catch (err) {
-      throw enhanceError(err, apiUrl)
+      throw enhanceOllamaError(err, apiUrl)
     }
   }
 
@@ -207,54 +209,4 @@ export class DefaultOllamaClient implements OllamaClient {
   }
 }
 
-function timeoutSignal(ms: number): { signal: AbortSignal; clear: () => void } {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), ms)
-  return {
-    signal: ctrl.signal,
-    clear: () => clearTimeout(timer),
-  }
-}
 
-
-function resolveFetch(): typeof globalThis.fetch {
-  if (typeof globalThis !== "undefined" && typeof globalThis.fetch === "function") {
-    return globalThis.fetch.bind(globalThis)
-  }
-  if (typeof window !== "undefined" && typeof window.fetch === "function") {
-    return window.fetch.bind(window)
-  }
-  if (typeof self !== "undefined" && typeof self.fetch === "function") {
-    return self.fetch.bind(self)
-  }
-  throw new Error("fetch API недоступен в этом окружении")
-}
-
-function isRetryable(err: unknown): boolean {
-  if (err instanceof TypeError) return true
-  if (err instanceof DOMException && err.name === "AbortError") return true
-  return false
-}
-
-function isLocalhostUrl(url: string): boolean {
-  return LOCALHOST_RE.test(url)
-}
-
-function enhanceError(err: unknown, url: string): Error {
-  if (err instanceof DOMException && err.name === "AbortError") {
-    return new Error("Превышен таймаут ожидания ответа от Ollama. Возможно модель перегружена — попробуйте увеличить таймаут в настройках")
-  }
-
-  const rawMessage = err instanceof Error ? err.message : String(err)
-  const errType = err instanceof Error ? err.constructor.name : typeof err
-
-  if (err instanceof TypeError && rawMessage.includes("fetch")) {
-    return new Error(
-      `Не удалось выполнить запрос к Ollama по адресу ${url}. ` +
-      `Ошибка: ${rawMessage}. ` +
-      "Проверьте: 1) Ollama запущен (ollama serve) 2) брандмауэр не блокирует порт 11434",
-    )
-  }
-
-  return new Error(`Ошибка (${errType}): ${rawMessage}`)
-}

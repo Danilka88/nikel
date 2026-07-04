@@ -128,16 +128,6 @@ export interface IndexManifest {
   relations: Relation[]
 }
 
-export function createEmptyManifest(): IndexManifest {
-  return {
-    version: 1,
-    lastIndexed: new Date().toISOString(),
-    files: {},
-    entities: [],
-    relations: [],
-  }
-}
-
 // ===== PDF/Ingestion =====
 
 export type IndexingMode = "vision" | "fast" | "direct"

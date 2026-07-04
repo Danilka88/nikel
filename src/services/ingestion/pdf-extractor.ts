@@ -1,4 +1,5 @@
 import { ChatOptions, IndexingMode, Logger, OllamaClient, PdfExtractResult } from "../../types"
+import { withTimeout } from "../../utils/timeout"
 
 const DEFAULT_VISION_PROMPT = `Ты — ассистент для извлечения научной информации. Опиши содержимое этой страницы PDF в формате Markdown. Сохрани: заголовки, таблицы, списки, числовые данные, формулы (LaTeX). Не пропускай подписи к рисункам, сноски, примечания. Если страница содержит таблицу — оформи её в Markdown.`
 
@@ -8,25 +9,6 @@ const MAX_RETRIES = 2
 const TEXT_THRESHOLD = 200
 const BASE_VISION_TIMEOUT_MS = 90_000
 const GET_PAGE_TEXT_TIMEOUT_MS = 30_000
-
-function timeoutSignal(ms: number): { signal: AbortSignal; clear: () => void } {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), ms)
-  return {
-    signal: ctrl.signal,
-    clear: () => clearTimeout(timer),
-  }
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  const t = timeoutSignal(ms)
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      t.signal.addEventListener("abort", () => reject(new Error(`Превышен таймаут (${ms / 1000} сек)`)), { once: true }),
-    ),
-  ]).finally(() => t.clear()) as Promise<T>
-}
 
 export interface PdfPageRenderer {
   load(data: Uint8Array): Promise<void>

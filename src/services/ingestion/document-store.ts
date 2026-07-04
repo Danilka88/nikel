@@ -2,6 +2,7 @@ import * as path from "path"
 import * as fs from "fs/promises"
 import type { TextChunk } from "../../types"
 import { bm25, cosineSimilarity, semanticChunk, tokenize } from "../../utils"
+import { atomicWriteJson } from "../../utils/atomic-save"
 
 const BM25_WEIGHT = 0.3
 const SEMANTIC_WEIGHT = 0.7
@@ -78,12 +79,7 @@ export class DocumentStore {
   }
 
   async save(): Promise<void> {
-    const dir = path.dirname(this.filePath)
-    await fs.mkdir(dir, { recursive: true })
-    const data = JSON.stringify(this.chunks, null, 2)
-    const tmp = this.filePath + ".tmp"
-    await fs.writeFile(tmp, data, "utf-8")
-    await fs.rename(tmp, this.filePath)
+    await atomicWriteJson(this.filePath, this.chunks)
   }
 
   async load(): Promise<void> {

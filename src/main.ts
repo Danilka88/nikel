@@ -16,6 +16,7 @@ import {
   type OllamaClient,
   type Provider,
 } from "./types"
+import { isRetryable } from "./utils/network"
 import { detectSourceType, resolvePdfMode, semanticChunk, toErrorMessage } from "./utils"
 import { NikelSuggester } from "./suggester"
 import { DefaultOllamaClient } from "./services/ollama"
@@ -238,20 +239,8 @@ export default class NikelPlugin extends Plugin {
         await this.graph.load()
       }
 
-      const allNew: string[] = []
-      const allChanged: string[] = []
-      const allDeleted: string[] = []
-      const fileToFolder = new Map<string, string>()
-
-      for (const f of folders) {
-        const changes = await this.fileWatcher.scan(f.path, f.exts)
-        for (const fp of changes.newFiles) fileToFolder.set(fp, f.path)
-        for (const fp of changes.changedFiles) fileToFolder.set(fp, f.path)
-        allNew.push(...changes.newFiles)
-        allChanged.push(...changes.changedFiles)
-        allDeleted.push(...changes.deletedFiles)
-      }
-
+      const scan = await this._scanIndexFolders(folders)
+      const { allNew, allChanged, allDeleted, fileToFolder } = scan
       const totalChanges = allNew.length + allChanged.length + allDeleted.length
 
       if (totalChanges === 0) {
@@ -262,167 +251,15 @@ export default class NikelPlugin extends Plugin {
       }
 
       await this.logger.info(`Found ${totalChanges} changes: ${allNew.length} new, ${allChanged.length} changed, ${allDeleted.length} deleted`)
+      await this._handleDeletedFiles(allDeleted)
 
-      if (this.settings.indexingMode === "direct") {
-        for (const filePath of allDeleted) {
-          this.documentStore.removeBySource(filePath)
-        }
-      } else {
-        for (const filePath of allDeleted) {
-          this.graph.removeBySource(filePath)
-        }
-      }
       const processedFiles = [...allNew, ...allChanged]
-      const totalFiles = processedFiles.length
-      const successfullyProcessed: string[] = []
-
-      for (let i = 0; i < totalFiles; i++) {
-        const filePath = processedFiles[i]
-        const fileName = filePath.split("/").pop() || filePath
-        modal.setProgress(i + 1, totalFiles, `Обрабатываю: ${fileName}`)
-
-        await this.logger.info(`Processing: ${fileName}`, { file: filePath, index: String(i + 1), total: String(totalFiles) })
-
-        const raw = await fs.readFile(filePath)
-        const data = Uint8Array.from(raw)
-        const ext = path.extname(filePath).toLowerCase()
-
-        try {
-          let extractResult: PdfExtractResult
-
-          if (ext === ".pdf") {
-            extractResult = await this.pdfExtractor.extractPdf(data, resolvePdfMode(this.settings.indexingMode))
-            await this.logger.info(`PDF extracted: ${extractResult.pageCount} pages`, { file: fileName, pages: String(extractResult.pageCount) })
-          } else if (ext === ".txt") {
-            extractResult = await this.textExtractor.extractTxt(data)
-            await this.logger.info(`TXT extracted: ${extractResult.markdown.length} chars`, { file: fileName })
-          } else if (ext === ".docx") {
-            extractResult = await this.textExtractor.extractDocx(data)
-            await this.logger.info(`DOCX extracted: ${extractResult.markdown.length} chars`, { file: fileName })
-          } else {
-            await this.logger.warn(`Unsupported file type: ${ext}`, { file: fileName })
-            continue
-          }
-
-          if (this.settings.indexingMode === "direct") {
-            if (ext === ".pdf") {
-              for (let p = 0; p < extractResult.pages.length; p++) {
-                await this.addWithEmbeddings(filePath, extractResult.pages[p], p + 1)
-              }
-            } else {
-              await this.addWithEmbeddings(filePath, extractResult.markdown)
-            }
-          } else {
-            const result = await this.entityExtractor.extract(
-              extractResult.markdown,
-              filePath,
-            )
-
-            const folderPath = fileToFolder.get(filePath)
-            const folderBase = folderPath || folders[0]?.path || ""
-            const relPath = folderBase ? path.relative(folderBase, filePath) : fileName
-            const sourceType = detectSourceType(relPath)
-            for (const entity of result.entities) {
-              entity.sourceType = sourceType
-            }
-
-            await this.logger.info(`Entities extracted: ${result.entities.length} entities, ${result.relations.length} relations`, { file: fileName, entities: String(result.entities.length), relations: String(result.relations.length) })
-
-            if (result.entities.length > 0) {
-              this.graph.mergeIndex({
-                version: 1,
-                lastIndexed: new Date().toISOString(),
-                files: {},
-                entities: result.entities,
-                relations: result.relations,
-              })
-            } else {
-              await this.logger.warn(`No entities extracted from ${fileName}`)
-            }
-          }
-          successfullyProcessed.push(filePath)
-        } catch (fileErr) {
-          await this.logger.error(`Failed to process ${fileName}: ${toErrorMessage(fileErr)}`, { file: fileName })
-          new Notice(`⚠️ Ошибка при обработке ${fileName}: ${toErrorMessage(fileErr)}`)
-        }
-      }
+      const successfullyProcessed = await this._processIndexFiles(processedFiles, fileToFolder, folders, modal)
 
       if (this.settings.indexingMode === "direct") {
-        await this.documentStore.save()
-
-        const hashManifest = await this.fileWatcher.loadManifest()
-        hashManifest.lastIndexed = new Date().toISOString()
-        const hashFiles = successfullyProcessed.length > 0 ? successfullyProcessed : processedFiles
-        await this.fileWatcher.updateFileHashes(hashFiles, hashManifest)
-        await this.fileWatcher.removeFileHashes(allDeleted, hashManifest)
-        await this.fileWatcher.saveManifest(hashManifest)
-
-        modal.setProgress(100, 100, "Сохранение завершено")
-        modal.close()
-        const ds = this.documentStore.stats
-        await this.logger.info(`Direct indexing complete: ${ds.totalChunks} chunks from ${ds.totalSources} sources`)
-        new Notice(`✅ Индексация завершена. ${ds.totalChunks} текстовых блоков из ${ds.totalSources} файлов.`)
+        await this._finalizeDirectIndexing(successfullyProcessed, processedFiles, allDeleted, modal)
       } else {
-        const hashFiles = successfullyProcessed.length > 0 ? successfullyProcessed : processedFiles
-        await this.fileWatcher.updateFileHashes(hashFiles, this.graph.manifest)
-        await this.fileWatcher.removeFileHashes(allDeleted, this.graph.manifest)
-
-        this.graph.manifest.lastIndexed = new Date().toISOString()
-        await this.graph.save()
-        await this.fileWatcher.saveManifest(this.graph.manifest)
-
-        const vaultBase = this.vaultBasePath
-        let generatedCount = 0
-        for (const entity of this.graph.entities) {
-          const doc = this.mdGenerator.generateDoc(entity, this.graph.relations)
-          const vaultRelPath = vaultBase && doc.path.startsWith(vaultBase)
-            ? doc.path.slice(vaultBase.length + 1)
-            : `${this.settings.nikelDir}/_answers/${doc.path.split("/").pop()}`
-          const exists = this.app.vault.getAbstractFileByPath(vaultRelPath)
-          if (!exists) {
-            try {
-              await this.app.vault.create(vaultRelPath, doc.content)
-              generatedCount++
-            } catch (createErr) {
-              await this.logger.warn(`Failed to create note for ${entity.name}`, { error: toErrorMessage(createErr) })
-            }
-          }
-        }
-
-        const indexContent = this.indexGenerator.generateIndex(this.graph.manifest)
-        const indexRelPath = `${this.settings.nikelDir}/_index.md`
-        const existingIndex = this.app.vault.getAbstractFileByPath(indexRelPath)
-        if (existingIndex instanceof TFile) {
-          await this.app.vault.modify(existingIndex, indexContent)
-        } else {
-          await this.app.vault.create(indexRelPath, indexContent)
-        }
-
-        const graphContent = this.indexGenerator.generateGraphMermaid(this.graph.manifest)
-        const graphRelPath = `${this.settings.nikelDir}/_graph.md`
-        const existingGraph = this.app.vault.getAbstractFileByPath(graphRelPath)
-        if (existingGraph instanceof TFile) {
-          await this.app.vault.modify(existingGraph, graphContent)
-        } else {
-          await this.app.vault.create(graphRelPath, graphContent)
-        }
-
-        const overviewCanvas = this.canvasGenerator.generateGlobalOverview(this.graph)
-        const canvasRelPath = `${this.settings.nikelDir}/canvas/обзор-базы-знаний.canvas`
-        const existingCanvas = this.app.vault.getAbstractFileByPath(canvasRelPath)
-        const canvasContent = JSON.stringify({ nodes: overviewCanvas.nodes, edges: overviewCanvas.edges }, null, 2)
-        if (existingCanvas instanceof TFile) {
-          await this.app.vault.modify(existingCanvas, canvasContent)
-        } else {
-          await this.app.vault.create(canvasRelPath, canvasContent)
-        }
-
-        modal.setProgress(100, 100, "Сохранение завершено")
-        modal.close()
-
-        const stats = this.graph.getStats()
-        await this.logger.info(`Indexing complete: ${stats.entityCount} entities, ${stats.relationCount} relations, ${generatedCount} notes created`)
-        new Notice(`✅ Индексация завершена. Сущностей: ${stats.entityCount}, связей: ${stats.relationCount}. Создано заметок: ${generatedCount}`)
+        await this._finalizeGraphIndexing(successfullyProcessed, processedFiles, allDeleted, modal)
       }
     } catch (e) {
       modal.close()
@@ -430,6 +267,219 @@ export default class NikelPlugin extends Plugin {
       await this.logger.error(`Indexing failed: ${msg}`)
       new Notice(`❌ Ошибка индексации: ${msg}`)
     }
+  }
+
+  private async _scanIndexFolders(
+    folders: { path: string; exts: string[] }[],
+  ): Promise<{ allNew: string[]; allChanged: string[]; allDeleted: string[]; fileToFolder: Map<string, string> }> {
+    const allNew: string[] = []
+    const allChanged: string[] = []
+    const allDeleted: string[] = []
+    const fileToFolder = new Map<string, string>()
+
+    for (const f of folders) {
+      const changes = await this.fileWatcher.scan(f.path, f.exts)
+      for (const fp of changes.newFiles) fileToFolder.set(fp, f.path)
+      for (const fp of changes.changedFiles) fileToFolder.set(fp, f.path)
+      allNew.push(...changes.newFiles)
+      allChanged.push(...changes.changedFiles)
+      allDeleted.push(...changes.deletedFiles)
+    }
+
+    return { allNew, allChanged, allDeleted, fileToFolder }
+  }
+
+  private async _handleDeletedFiles(deleted: string[]): Promise<void> {
+    if (this.settings.indexingMode === "direct") {
+      for (const filePath of deleted) {
+        this.documentStore.removeBySource(filePath)
+      }
+    } else {
+      for (const filePath of deleted) {
+        this.graph.removeBySource(filePath)
+      }
+    }
+  }
+
+  private async _processIndexFiles(
+    files: string[],
+    fileToFolder: Map<string, string>,
+    folders: { path: string }[],
+    modal: ProgressModal,
+  ): Promise<string[]> {
+    const totalFiles = files.length
+    const successfullyProcessed: string[] = []
+
+    for (let i = 0; i < totalFiles; i++) {
+      const filePath = files[i]
+      const fileName = filePath.split("/").pop() || filePath
+      modal.setProgress(i + 1, totalFiles, `Обрабатываю: ${fileName}`)
+
+      await this.logger.info(`Processing: ${fileName}`, { file: filePath, index: String(i + 1), total: String(totalFiles) })
+
+      try {
+        await this._processSingleFile(filePath, fileName, fileToFolder, folders)
+        successfullyProcessed.push(filePath)
+      } catch (fileErr) {
+        await this.logger.error(`Failed to process ${fileName}: ${toErrorMessage(fileErr)}`, { file: fileName })
+        new Notice(`⚠️ Ошибка при обработке ${fileName}: ${toErrorMessage(fileErr)}`)
+      }
+    }
+
+    return successfullyProcessed
+  }
+
+  private async _processSingleFile(
+    filePath: string,
+    fileName: string,
+    fileToFolder: Map<string, string>,
+    folders: { path: string }[],
+  ): Promise<void> {
+    const raw = await fs.readFile(filePath)
+    const data = Uint8Array.from(raw)
+    const ext = path.extname(filePath).toLowerCase()
+
+    let extractResult: PdfExtractResult
+
+    if (ext === ".pdf") {
+      extractResult = await this.pdfExtractor.extractPdf(data, resolvePdfMode(this.settings.indexingMode))
+      await this.logger.info(`PDF extracted: ${extractResult.pageCount} pages`, { file: fileName, pages: String(extractResult.pageCount) })
+    } else if (ext === ".txt") {
+      extractResult = await this.textExtractor.extractTxt(data)
+      await this.logger.info(`TXT extracted: ${extractResult.markdown.length} chars`, { file: fileName })
+    } else if (ext === ".docx") {
+      extractResult = await this.textExtractor.extractDocx(data)
+      await this.logger.info(`DOCX extracted: ${extractResult.markdown.length} chars`, { file: fileName })
+    } else {
+      await this.logger.warn(`Unsupported file type: ${ext}`, { file: fileName })
+      return
+    }
+
+    if (this.settings.indexingMode === "direct") {
+      if (ext === ".pdf") {
+        for (let p = 0; p < extractResult.pages.length; p++) {
+          await this.addWithEmbeddings(filePath, extractResult.pages[p], p + 1)
+        }
+      } else {
+        await this.addWithEmbeddings(filePath, extractResult.markdown)
+      }
+    } else {
+      const result = await this.entityExtractor.extract(extractResult.markdown, filePath)
+
+      const folderPath = fileToFolder.get(filePath)
+      const folderBase = folderPath || folders[0]?.path || ""
+      const relPath = folderBase ? path.relative(folderBase, filePath) : fileName
+      const sourceType = detectSourceType(relPath)
+      for (const entity of result.entities) {
+        entity.sourceType = sourceType
+      }
+
+      await this.logger.info(`Entities extracted: ${result.entities.length} entities, ${result.relations.length} relations`, {
+        file: fileName, entities: String(result.entities.length), relations: String(result.relations.length),
+      })
+
+      if (result.entities.length > 0) {
+        this.graph.mergeIndex({
+          version: 1,
+          lastIndexed: new Date().toISOString(),
+          files: {},
+          entities: result.entities,
+          relations: result.relations,
+        })
+      } else {
+        await this.logger.warn(`No entities extracted from ${fileName}`)
+      }
+    }
+  }
+
+  private async _finalizeDirectIndexing(
+    successfullyProcessed: string[],
+    processedFiles: string[],
+    allDeleted: string[],
+    modal: ProgressModal,
+  ): Promise<void> {
+    await this.documentStore.save()
+
+    const hashManifest = await this.fileWatcher.loadManifest()
+    hashManifest.lastIndexed = new Date().toISOString()
+    const hashFiles = successfullyProcessed.length > 0 ? successfullyProcessed : processedFiles
+    await this.fileWatcher.updateFileHashes(hashFiles, hashManifest)
+    await this.fileWatcher.removeFileHashes(allDeleted, hashManifest)
+    await this.fileWatcher.saveManifest(hashManifest)
+
+    modal.setProgress(100, 100, "Сохранение завершено")
+    modal.close()
+    const ds = this.documentStore.stats
+    await this.logger.info(`Direct indexing complete: ${ds.totalChunks} chunks from ${ds.totalSources} sources`)
+    new Notice(`✅ Индексация завершена. ${ds.totalChunks} текстовых блоков из ${ds.totalSources} файлов.`)
+  }
+
+  private async _finalizeGraphIndexing(
+    successfullyProcessed: string[],
+    processedFiles: string[],
+    allDeleted: string[],
+    modal: ProgressModal,
+  ): Promise<void> {
+    const hashFiles = successfullyProcessed.length > 0 ? successfullyProcessed : processedFiles
+    await this.fileWatcher.updateFileHashes(hashFiles, this.graph.manifest)
+    await this.fileWatcher.removeFileHashes(allDeleted, this.graph.manifest)
+
+    this.graph.manifest.lastIndexed = new Date().toISOString()
+    await this.graph.save()
+    await this.fileWatcher.saveManifest(this.graph.manifest)
+
+    const vaultBase = this.vaultBasePath
+    let generatedCount = 0
+    for (const entity of this.graph.entities) {
+      const doc = this.mdGenerator.generateDoc(entity, this.graph.relations)
+      const vaultRelPath = vaultBase && doc.path.startsWith(vaultBase)
+        ? doc.path.slice(vaultBase.length + 1)
+        : `${this.settings.nikelDir}/_answers/${doc.path.split("/").pop()}`
+      const exists = this.app.vault.getAbstractFileByPath(vaultRelPath)
+      if (!exists) {
+        try {
+          await this.app.vault.create(vaultRelPath, doc.content)
+          generatedCount++
+        } catch (createErr) {
+          await this.logger.warn(`Failed to create note for ${entity.name}`, { error: toErrorMessage(createErr) })
+        }
+      }
+    }
+
+    const indexContent = this.indexGenerator.generateIndex(this.graph.manifest)
+    const indexRelPath = `${this.settings.nikelDir}/_index.md`
+    const existingIndex = this.app.vault.getAbstractFileByPath(indexRelPath)
+    if (existingIndex instanceof TFile) {
+      await this.app.vault.modify(existingIndex, indexContent)
+    } else {
+      await this.app.vault.create(indexRelPath, indexContent)
+    }
+
+    const graphContent = this.indexGenerator.generateGraphMermaid(this.graph.manifest)
+    const graphRelPath = `${this.settings.nikelDir}/_graph.md`
+    const existingGraph = this.app.vault.getAbstractFileByPath(graphRelPath)
+    if (existingGraph instanceof TFile) {
+      await this.app.vault.modify(existingGraph, graphContent)
+    } else {
+      await this.app.vault.create(graphRelPath, graphContent)
+    }
+
+    const overviewCanvas = this.canvasGenerator.generateGlobalOverview(this.graph)
+    const canvasRelPath = `${this.settings.nikelDir}/canvas/обзор-базы-знаний.canvas`
+    const existingCanvas = this.app.vault.getAbstractFileByPath(canvasRelPath)
+    const canvasContent = JSON.stringify({ nodes: overviewCanvas.nodes, edges: overviewCanvas.edges }, null, 2)
+    if (existingCanvas instanceof TFile) {
+      await this.app.vault.modify(existingCanvas, canvasContent)
+    } else {
+      await this.app.vault.create(canvasRelPath, canvasContent)
+    }
+
+    modal.setProgress(100, 100, "Сохранение завершено")
+    modal.close()
+
+    const stats = this.graph.getStats()
+    await this.logger.info(`Indexing complete: ${stats.entityCount} entities, ${stats.relationCount} relations, ${generatedCount} notes created`)
+    new Notice(`✅ Индексация завершена. Сущностей: ${stats.entityCount}, связей: ${stats.relationCount}. Создано заметок: ${generatedCount}`)
   }
 
   async processNikelTask(): Promise<void> {
@@ -759,9 +809,6 @@ class FallbackLLMClient implements OllamaClient {
   }
 
   private _isRetryable(err: unknown): boolean {
-    if (err instanceof TypeError) return true
-    if (err instanceof DOMException && err.name === "AbortError") return true
-    const msg = err instanceof Error ? err.message : String(err)
-    return msg.includes("fetch") || msg.includes("Failed to fetch") || msg.includes("NetworkError")
+    return isRetryable(err)
   }
 }

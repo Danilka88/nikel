@@ -1,7 +1,9 @@
 import * as crypto from "crypto"
 import * as fs from "fs/promises"
 import * as path from "path"
-import { FileChanges, IndexManifest, createEmptyManifest } from "../../types"
+import { FileChanges, IndexManifest } from "../../types"
+import { createEmptyManifest } from "../../utils"
+import { atomicWriteJson } from "../../utils/atomic-save"
 
 const DEFAULT_EXTENSIONS = [".pdf"]
 
@@ -82,7 +84,7 @@ export class FileWatcher {
         try {
           await fs.copyFile(this._manifestPath, this._manifestPath + ".bak")
         } catch {
-          // no original file to backup
+          console.warn("FileWatcher: не удалось создать бэкап file-hashes.json")
         }
       }
       return createEmptyManifest()
@@ -90,10 +92,7 @@ export class FileWatcher {
   }
 
   async saveManifest(manifest: IndexManifest): Promise<void> {
-    await fs.mkdir(path.dirname(this._manifestPath), { recursive: true })
-    const tmpPath = this._manifestPath + ".tmp"
-    await fs.writeFile(tmpPath, JSON.stringify(manifest, null, 2), "utf-8")
-    await fs.rename(tmpPath, this._manifestPath)
+    await atomicWriteJson(this._manifestPath, manifest)
   }
 
   private async loadAndMigrateManifest(): Promise<IndexManifest> {

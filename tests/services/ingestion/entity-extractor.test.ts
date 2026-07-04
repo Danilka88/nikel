@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
-import { EntityExtractor, normalizeName, dedupEntities } from "../../../src/services/ingestion/entity-extractor"
+import { EntityExtractor } from "../../../src/services/ingestion/entity-extractor"
+import { normalizeName, dedupEntities } from "../../../src/utils/entity"
 import { Entity, ExtractionResult, OllamaClient } from "../../../src/types"
 
 function mockOllama(response: string): OllamaClient {

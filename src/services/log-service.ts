@@ -41,8 +41,8 @@ export class FileLogger implements Logger {
     try {
       await fs.mkdir(path.dirname(this._logPath), { recursive: true })
       await fs.writeFile(this._logPath, header + "\n", "utf-8")
-    } catch {
-      // Log file is non-critical, silently ignore write errors
+    } catch (err) {
+      console.warn("Nikel log: не удалось очистить файл лога", err)
     }
   }
 
@@ -125,8 +125,8 @@ export class FileLogger implements Logger {
     this._flushPromise = (async () => {
       try {
         await fs.appendFile(this._logPath, lines.join("\n") + "\n", "utf-8")
-      } catch {
-        // non-critical
+      } catch (err) {
+        console.warn("Nikel log: не удалось записать лог", err)
       }
     })()
 

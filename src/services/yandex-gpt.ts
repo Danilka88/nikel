@@ -1,4 +1,6 @@
 import { ChatOptions, EmbeddingOptions, GenerateOptions, OllamaClient } from "../types"
+import { timeoutSignal } from "../utils/timeout"
+import { resolveFetch } from "../utils/fetch"
 
 const DEFAULT_BASE_URL = "https://llm.api.cloud.yandex.net/v1"
 const DEFAULT_TIMEOUT_MS = 120_000
@@ -7,19 +9,6 @@ const KNOWN_MODELS = ["yandexgpt/latest", "yandexgpt-pro/latest", "yandexgpt-lit
 interface YandexChatResponse {
   choices?: { message?: { content?: string } }[]
   error?: string
-}
-
-function resolveFetch(): typeof globalThis.fetch {
-  if (typeof globalThis !== "undefined" && typeof globalThis.fetch === "function") {
-    return globalThis.fetch.bind(globalThis)
-  }
-  if (typeof window !== "undefined" && typeof window.fetch === "function") {
-    return window.fetch.bind(window)
-  }
-  if (typeof self !== "undefined" && typeof self.fetch === "function") {
-    return self.fetch.bind(self)
-  }
-  throw new Error("fetch API недоступен в этом окружении")
 }
 
 export class YandexGPTClient implements OllamaClient {
@@ -137,11 +126,4 @@ export class YandexGPTClient implements OllamaClient {
   }
 }
 
-function timeoutSignal(ms: number): { signal: AbortSignal; clear: () => void } {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), ms)
-  return {
-    signal: ctrl.signal,
-    clear: () => clearTimeout(timer),
-  }
-}
+

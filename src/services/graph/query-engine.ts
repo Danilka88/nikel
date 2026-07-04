@@ -86,7 +86,8 @@ export class QueryEngine {
       const parsed = this.tryParseJsonArray(raw)
       if (parsed.length > 0) return parsed
       return []
-    } catch {
+    } catch (err) {
+      console.warn("QueryEngine: не удалось извлечь сущности из вопроса", err)
       return []
     }
   }

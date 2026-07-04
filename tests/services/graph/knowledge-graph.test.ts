@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import * as fs from "fs/promises"
 import { KnowledgeGraph } from "../../../src/services/graph/knowledge-graph"
-import { Entity, Relation, IndexManifest, createEmptyManifest } from "../../../src/types"
+import { Entity, Relation, IndexManifest } from "../../../src/types"
+import { createEmptyManifest } from "../../../src/utils"
 
 vi.mock("fs/promises")
 

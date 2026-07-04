@@ -1,4 +1,4 @@
-import type { Entity, IndexingMode } from "./types"
+import type { Entity, IndexManifest, IndexingMode } from "./types"
 
 const CHUNK_MAX_LEN = 1000
 const CHUNK_OVERLAP = 200
@@ -139,4 +139,14 @@ export function semanticChunk(text: string): string[] {
   }
   if (current.trim()) chunks.push(current.trim())
   return chunks
+}
+
+export function createEmptyManifest(): IndexManifest {
+  return {
+    version: 1,
+    lastIndexed: new Date().toISOString(),
+    files: {},
+    entities: [],
+    relations: [],
+  }
 }
