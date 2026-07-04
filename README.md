@@ -520,3 +520,12 @@ main.ts (оркестрация, Obsidian API)
 ## Лицензия
 
 MIT
+
+---
+
+## Ссылки
+
+- **Все материалы на Яндекс Диск** — https://disk.yandex.ru/d/R-LRydZQJKfj-w
+- **Обзор работы плагина Никель** (Капылов Данил, 221) — https://disk.yandex.ru/i/NC4LnVlAr-_T8Q
+- **Презентация плагина НИКЕЛЬ** (Капылов Данил, 221) — https://disk.yandex.ru/i/RaBHJb_T994Xlg
+- **GitHub репозиторий** — https://github.com/Danilka88/nikel.git
